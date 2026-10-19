@@ -17,7 +17,7 @@ typedef uint32_t nvme_print_flags_t;
 
 struct nvme_args {
 	char *output_format;
-	unsigned int verbose;
+	int verbose;
 	bool quiet;
 	uint32_t timeout;
 	bool dry_run;
@@ -25,7 +25,13 @@ struct nvme_args {
 	bool no_ioctl_probing;
 	unsigned int output_format_ver;
 	nvme_print_flags_t supported_output_formats;
+	/* --output-format of the current command, set by parse_args() */
+	nvme_print_flags_t output_flags;
 	const char *set_options;
+	/* the operand of the current command, enum command_device */
+	int device_operand;
+	/* the device it was given, set by parse_args(), or NULL */
+	char *device;
 };
 extern struct nvme_args nvme_args;
 
@@ -38,6 +44,17 @@ enum nvme_print_flags {
 	TABULAR		= 1 << 4,	/* prints aligned columns for easy reading */
 };
 
+/*
+ * The command parses --output-format itself, for names other than the
+ * ones above. parse_args() does not check it then.
+ */
+#define OUTPUT_FORMATS_CUSTOM	(1U << 31)
+/*
+ * Only the normal output. NORMAL is 0 and a struct command without output
+ * formats gets the default ones.
+ */
+#define OUTPUT_FORMATS_NORMAL	(1U << 30)
+
 #ifdef CONFIG_JSONC
 #define DEFAULT_OUTPUT_FORMATS (NORMAL | JSON | BINARY)
 #define DEFAULT_OUTPUT_FORMAT_DESC "Output format: normal|json|binary"
@@ -47,46 +64,30 @@ enum nvme_print_flags {
 #endif /* CONFIG_JSONC */
 
 /*
- * the ordering of the arguments matters, as the argument parser uses the first
- * match, thus any command which defines -t shorthand will match first.
+ * The global options are registered once with argconfig
+ * (nvme_args_register()) and accepted by every command. They take
+ * precedence over a command's own option of the same short or long name,
+ * so a command must not use their names. The output formats a command
+ * supports are declared in its struct command.
  */
-#define NVME_ARGS_OUTPUT_FORMATS(n, of_mask, of_desc, ...)                             \
-	nvme_args.supported_output_formats = of_mask;                                  \
-	struct argconfig_commandline_options n[] = {                                   \
-		OPT_GROUP("Options"),                                                  \
-		##__VA_ARGS__,                                                         \
-		OPT_GROUP("Global options"),                                           \
-		OPT_INCR("verbose",      'v', &nvme_args.verbose,                      \
-                         "Increase output verbosity"),                                 \
-		OPT_FLAG("quiet",        0, &nvme_args.quiet,                          \
-			 "suppress informational output"),                             \
-		OPT_FMT("output-format", 'o', &nvme_args.output_format, of_desc),      \
-		OPT_UINT("timeout",        0, &nvme_args.timeout,                      \
-                         "timeout value, in milliseconds"),                            \
-		OPT_FLAG("dry-run",        0, &nvme_args.dry_run,                      \
-                         "show command instead of executing"),                         \
-		OPT_FLAG("no-retries",     0, &nvme_args.no_retries,                   \
-			 "disable retry logic on errors"),                             \
-		OPT_FLAG("no-ioctl-probing", 0, &nvme_args.no_ioctl_probing,           \
-			 "disable 64-bit IOCTL support probing"),                      \
-		OPT_UINT("output-format-version", 0, &nvme_args.output_format_ver,     \
-			 "output format version: 1|2"),                                \
-		OPT_FLAG("human-readable", 'H', &nvme_args.verbose, NULL, NULL, true), \
-		OPT_STRING("set-options",    0, "KEY=VALUE",                           \
-			 &nvme_args.set_options,                                       \
-			 "set a libnvme library option (key=value[,key=value,...]);"), \
-		OPT_END()                                                              \
-	}
-
-#define NVME_ARGS(n, ...)                   \
-	NVME_ARGS_OUTPUT_FORMATS(n,         \
-		DEFAULT_OUTPUT_FORMATS,     \
-		DEFAULT_OUTPUT_FORMAT_DESC, \
-		##__VA_ARGS__)
-
+extern struct argconfig_opt_val nvme_nsid_values[];
+extern struct argconfig_opt_val nvme_timeout_values[];
+extern struct argconfig_opt_val nvme_sel_values[];
+/* The largest value of the Select field, nvme_sel_values names them */
+#define NVME_SEL_MAX	NVME_GET_FEATURES_SEL_SUPPORTED
 extern const char *uuid_index;
 extern const char *namespace_id_desired;
 
+void nvme_args_register(void);
+void nvme_args_set_output_formats(nvme_print_flags_t formats,
+				  const char *custom_desc);
+/*
+ * The options and the operand of a command. parse_args() also applies
+ * the output format, parse_cmdline() is for a command which passes its
+ * arguments on to another one.
+ */
+int parse_cmdline(int argc, char *argv[], const char *desc,
+		  struct argconfig_commandline_options *opts);
 int parse_args(int argc, char *argv[], const char *desc,
 	       struct argconfig_commandline_options *opts);
 int validate_output_format(const char *format, nvme_print_flags_t *flags);

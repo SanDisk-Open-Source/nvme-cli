@@ -182,11 +182,12 @@ static void smart_log_item_add_json(struct nvme_additional_smart_log_item *item,
 					    bool has_smart_id_e7_or_e8)
 {
 	struct smart_ref_clk *pll_item = (struct smart_ref_clk *)item;
-	struct json_object *entry_stats = json_create_object();
+	struct json_object *entry_stats;
 
 	if (!item->id)
 		return;
 
+	entry_stats = json_create_object();
 	json_object_add_value_int(entry_stats, "normalized", item->normalized);
 
 	switch (item->id) {
@@ -269,20 +270,17 @@ int solidigm_get_additional_smart_log(int argc, char **argv, struct command *acm
 		.namespace_id	= NVME_NSID_ALL,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id",   'n', &cfg.namespace_id,
-			 "(optional) desired namespace"));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 "(optional) desired namespace", nvme_nsid_values),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format '%s'",
-			nvme_args.output_format);
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	sldgm_get_uuid_index(hdl, &uuid_index);
 

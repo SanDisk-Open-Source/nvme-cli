@@ -85,12 +85,13 @@ diffcmd = find_program(
 if diffcmd.found()
     foreach table: tables
         test(
-            'libnvme - @0@'.format(table),
+            'libnvme - nbft/' + table.replace('NBFT-', ''),
             dump_helper,
             args: [
                 files(tables_dir/table),
                 files(diff_dir/table),
             ],
+            suite: 'unit',
         )
     endforeach
 endif
@@ -98,32 +99,35 @@ endif
 foreach table: tables_bad
     if meson.version().version_compare('>=1.11.0')
         test(
-            'libnvme - @0@'.format(table),
+            'libnvme - nbft/' + table.replace('NBFT-', ''),
             nbft_dump,
             args: [
                 files(tables_bad_dir/table),
             ],
             expected_fail: true,
+            suite: 'unit',
         )
     else
         test(
-            'libnvme - @0@'.format(table),
+            'libnvme - nbft/' + table.replace('NBFT-', ''),
             nbft_dump,
             args: [
                 files(tables_bad_dir/table),
             ],
             should_fail: true,
+            suite: 'unit',
         )
     endif
 endforeach
 
 foreach table: tables_rejected
     test(
-        'libnvme - @0@'.format(table),
+        'libnvme - nbft/' + table.replace('NBFT-', ''),
         files('nbft-reject.sh'),
         args: [
             nbft_dump,
             files(tables_bad_dir/table),
         ],
+        suite: 'unit',
     )
 endforeach

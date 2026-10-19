@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * This file is part of nvme-cli.
+ * Copyright (c) 2026 SUSE Software Solutions
+ *
+ * Authors: Daniel Wagner <dwagner@suse.de>
+ *
+ * The options every command accepts, registered once with argconfig.
+ */
+
+#include <stdio.h>
+
+#include <libnvme.h>
+
+#include "argconfig.h"
+#include "args.h"
+
+/* The broadcast namespace identifier, see the NVM Express specification */
+struct argconfig_opt_val nvme_nsid_values[] = {
+	VAL_UINT("all", NVME_NSID_ALL),
+	VAL_UINT("-1", NVME_NSID_ALL),
+	VAL_END()
+};
+
+/* The Select field of Get Features, see the NVM Express specification */
+struct argconfig_opt_val nvme_sel_values[] = {
+	VAL_BYTE("current", NVME_GET_FEATURES_SEL_CURRENT),
+	VAL_BYTE("default", NVME_GET_FEATURES_SEL_DEFAULT),
+	VAL_BYTE("saved", NVME_GET_FEATURES_SEL_SAVED),
+	VAL_BYTE("supported", NVME_GET_FEATURES_SEL_SUPPORTED),
+	VAL_END()
+};
+
+/* No timeout: the largest timeout the kernel takes */
+struct argconfig_opt_val nvme_timeout_values[] = {
+	VAL_UINT("infinite", UINT32_MAX),
+	VAL_UINT("-1", UINT32_MAX),
+	VAL_END()
+};
+
+static char output_format_help[64];
+
+static struct argconfig_commandline_options global_options[] = {
+	OPT_INCR("verbose", 'v', &nvme_args.verbose,
+		 "Increase output verbosity"),
+	OPT_FLAG("quiet", 0, &nvme_args.quiet,
+		 "suppress informational output"),
+	OPT_FMT("output-format", 'o', &nvme_args.output_format,
+		output_format_help),
+	OPT_UINT("timeout", 0, &nvme_args.timeout,
+		 "timeout value, in milliseconds", nvme_timeout_values),
+	OPT_FLAG("dry-run", 0, &nvme_args.dry_run,
+		 "show command instead of executing"),
+	OPT_FLAG("no-retries", 0, &nvme_args.no_retries,
+		 "disable retry logic on errors"),
+	OPT_FLAG("no-ioctl-probing", 0, &nvme_args.no_ioctl_probing,
+		 "disable 64-bit IOCTL support probing"),
+	OPT_UINT("output-format-version", 0, &nvme_args.output_format_ver,
+		 "output format version: 1|2", .min = 1, .max = 2),
+	/* the spelling of --verbose of older versions */
+	OPT_INCR("human-readable", 'H', &nvme_args.verbose, NULL,
+		 .deprecated = "--verbose/-v"),
+	OPT_STRING("set-options", 0, "KEY=VALUE", &nvme_args.set_options,
+		   "set a libnvme library option (key=value[,key=value,...]);"),
+	OPT_END()
+};
+
+/* Register the options every command accepts */
+void nvme_args_register(void)
+{
+	nvme_args_set_output_formats(DEFAULT_OUTPUT_FORMATS, NULL);
+	argconfig_set_global_options(global_options);
+}
+
+/*
+ * The output formats the current command supports. The help text lists
+ * them, a command which parses --output-format itself describes its own.
+ */
+void nvme_args_set_output_formats(nvme_print_flags_t formats,
+				  const char *custom_desc)
+{
+	formats &= ~OUTPUT_FORMATS_NORMAL;
+	nvme_args.supported_output_formats = formats;
+	if (formats & OUTPUT_FORMATS_CUSTOM) {
+		snprintf(output_format_help, sizeof(output_format_help), "%s",
+			 custom_desc);
+		return;
+	}
+	snprintf(output_format_help, sizeof(output_format_help),
+		 "Output format: normal%s%s%s",
+		 formats & JSON ? "|json" : "",
+		 formats & BINARY ? "|binary" : "",
+		 formats & TABULAR ? "|tabular" : "");
+}

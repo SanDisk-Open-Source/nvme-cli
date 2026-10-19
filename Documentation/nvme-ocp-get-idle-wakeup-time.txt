@@ -32,6 +32,15 @@ OPTIONS
 --sel=<select>::
 	Select (SEL): This field specifies which value of the attributes
 	to return in the provided data:
++
+[]
+|==================
+|Select|Name|Description
+|0|current|Current
+|1|default|Default
+|2|saved|Saved
+|3|supported|Supported capabilities
+|==================
 
 -n <namespace-id>::
 --namespace-id=<namespace-id>::
@@ -47,6 +56,7 @@ OPTIONS
 |3|Supported capabilities
 |4-7|Reserved
 |==================
+	The broadcast value 0xffffffff can also be given as 'all' or '-1'.
 
 include::global-options.txt[]
 

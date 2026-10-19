@@ -60,7 +60,8 @@ void stdout_fid_support_effects_log(
 	struct nvme_fid_supported_effects_log *fid_log, const char *devname);
 void stdout_fw_log(struct nvme_firmware_slot *fw_log, const char *devname);
 void stdout_lba_status_log(void *lba_status, __u32 size, const char *devname);
-void stdout_media_unit_stat_log(struct nvme_media_unit_stat_log *mus_log);
+void stdout_media_unit_stat_log(struct nvme_media_unit_stat_log *mus_log,
+		size_t len);
 void stdout_mi_cmd_support_effects_log(
 	struct nvme_mi_cmd_supported_effects_log *mi_cmd_log,
 	const char *devname);
@@ -91,17 +92,18 @@ void stdout_mgmt_addr_list_log(struct nvme_mgmt_addr_list_log *ma_list);
 void stdout_rotational_media_info_log(
 	struct nvme_rotational_media_info_log *info);
 void stdout_dispersed_ns_psub_log(
-	struct nvme_dispersed_ns_participating_nss_log *log);
+	struct nvme_dispersed_ns_participating_nss_log *log, __u64 len);
 void stdout_reachability_groups_log(struct nvme_reachability_groups_log *log,
 				    __u64 len);
 void stdout_reachability_associations_log(
 	struct nvme_reachability_associations_log *log, __u64 len);
-void stdout_pull_model_ddc_req_log(struct nvme_pull_model_ddc_req_log *log);
+void stdout_pull_model_ddc_req_log(struct nvme_pull_model_ddc_req_log *log,
+				   __u64 len);
 void stdout_power_meas_log(struct nvme_power_meas_log *log, __u32 size);
 #ifdef CONFIG_FABRICS
 void stdout_discovery_log(const struct nvmf_discovery_log *log, int numrec);
-void stdout_host_discovery_log(struct nvme_host_discovery_log *log);
-void stdout_ave_discovery_log(struct nvme_ave_discovery_log *log);
+void stdout_host_discovery_log(struct nvme_host_discovery_log *log, __u64 len);
+void stdout_ave_discovery_log(struct nvme_ave_discovery_log *log, __u64 len);
 #else /* CONFIG_FABRICS */
 #define stdout_discovery_log NULL
 #define stdout_host_discovery_log NULL

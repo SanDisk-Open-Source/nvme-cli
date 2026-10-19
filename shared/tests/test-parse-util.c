@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <ccan/array_size/array_size.h>
 #include <shared/parse-util.h>
 
 static bool check_bool(const char *value, int want_ret, bool want_out)
@@ -344,11 +345,176 @@ static bool test_csv_u128(void)
 	pass &= check_int_ret("val[1]", (int)val[1], 2147483647);
 	pass &= check_uint128_ret("val[2]", val[2], want);
 
+	{
+		/* no octal, a leading 0 was read as decimal */
+		char octal[] = "1,010";
+
+		ret = shr_parse_csv_u128(octal, val, 8);
+		pass &= check_int_ret("leading 0 rejected", ret, -EINVAL);
+	}
+
 	return pass;
 }
 #else /* NVME_HAVE_INT128 */
 #define test_csv_u128() true
 #endif /* NVME_HAVE_INT128 */
+
+static bool check_u64(const char *value, uint64_t max, int want_ret,
+		      uint64_t want)
+{
+	uint64_t out = 0;
+	int ret;
+
+	ret = shr_parse_u64(value, max, &out);
+	if (ret != want_ret || (!ret && out != want)) {
+		printf(" - \"%s\": got ret=%d out=%llu [FAIL]\n", value, ret,
+		       (unsigned long long)out);
+		return false;
+	}
+	printf(" - \"%s\" [PASS]\n", value);
+	return true;
+}
+
+static bool test_u64(void)
+{
+	bool pass = true;
+
+	printf("test_u64:\n");
+
+	pass &= check_u64("0", UINT64_MAX, 0, 0);
+	pass &= check_u64("42", UINT64_MAX, 0, 42);
+	pass &= check_u64("0x1F", UINT64_MAX, 0, 31);
+	/* no octal: a leading 0 is rejected */
+	pass &= check_u64("010", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64("00", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64("0x010", UINT64_MAX, 0, 16);
+	pass &= check_u64("18446744073709551615", UINT64_MAX, 0, UINT64_MAX);
+	pass &= check_u64("18446744073709551616", UINT64_MAX, -ERANGE, 0);
+	pass &= check_u64("256", 255, -ERANGE, 0);
+	pass &= check_u64("255", 255, 0, 255);
+	pass &= check_u64("", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64(" 1", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64("1 ", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64("+1", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64("-1", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64("1x", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64("0x", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64("08", UINT64_MAX, -EINVAL, 0);
+	pass &= check_u64(NULL, UINT64_MAX, -EINVAL, 0);
+
+	return pass;
+}
+
+static bool check_s64(const char *value, int64_t min, int64_t max,
+		      int want_ret, int64_t want)
+{
+	int64_t out = 0;
+	int ret;
+
+	ret = shr_parse_s64(value, min, max, &out);
+	if (ret != want_ret || (!ret && out != want)) {
+		printf(" - \"%s\": got ret=%d out=%lld [FAIL]\n", value, ret,
+		       (long long)out);
+		return false;
+	}
+	printf(" - \"%s\" [PASS]\n", value);
+	return true;
+}
+
+static bool test_s64(void)
+{
+	bool pass = true;
+
+	printf("test_s64:\n");
+
+	pass &= check_s64("-5", INT32_MIN, INT32_MAX, 0, -5);
+	pass &= check_s64("2147483647", INT32_MIN, INT32_MAX, 0, INT32_MAX);
+	pass &= check_s64("2147483648", INT32_MIN, INT32_MAX, -ERANGE, 0);
+	pass &= check_s64("-2147483649", INT32_MIN, INT32_MAX, -ERANGE, 0);
+	pass &= check_s64("-0x10", INT32_MIN, INT32_MAX, 0, -16);
+	pass &= check_s64("-0", INT32_MIN, INT32_MAX, 0, 0);
+	pass &= check_s64("010", INT32_MIN, INT32_MAX, -EINVAL, 0);
+	pass &= check_s64("-010", INT32_MIN, INT32_MAX, -EINVAL, 0);
+	pass &= check_s64("9223372036854775808", INT64_MIN, INT64_MAX,
+			  -ERANGE, 0);
+	pass &= check_s64("--1", INT32_MIN, INT32_MAX, -EINVAL, 0);
+	pass &= check_s64("- 1", INT32_MIN, INT32_MAX, -EINVAL, 0);
+	pass &= check_s64("-", INT32_MIN, INT32_MAX, -EINVAL, 0);
+	pass &= check_s64("1x", INT32_MIN, INT32_MAX, -EINVAL, 0);
+
+	return pass;
+}
+
+static bool check_double(const char *value, int want_ret, double want)
+{
+	double out = 0;
+	int ret;
+
+	ret = shr_parse_double(value, &out);
+	if (ret != want_ret || (!ret && out != want)) {
+		printf(" - \"%s\": got ret=%d out=%f [FAIL]\n", value, ret,
+		       out);
+		return false;
+	}
+	printf(" - \"%s\" [PASS]\n", value);
+	return true;
+}
+
+static bool test_double(void)
+{
+	bool pass = true;
+
+	printf("test_double:\n");
+
+	pass &= check_double("1.5", 0, 1.5);
+	pass &= check_double("-0.25", 0, -0.25);
+	pass &= check_double("1e3", 0, 1000);
+	pass &= check_double(".5", 0, 0.5);
+	pass &= check_double("nan", -EINVAL, 0);
+	pass &= check_double("inf", -EINVAL, 0);
+	pass &= check_double("1e999", -EINVAL, 0);
+	pass &= check_double(" 1", -EINVAL, 0);
+	pass &= check_double("1 ", -EINVAL, 0);
+	pass &= check_double("1,5", -EINVAL, 0);
+	pass &= check_double("", -EINVAL, 0);
+
+	return pass;
+}
+
+static bool test_csv_strict(void)
+{
+	static const struct {
+		const char *in;
+		int want;
+	} tests[] = {
+		{ "1, 2", 2 },
+		{ " 1 ,2 ", 2 },
+		{ "1,,2", 2 },
+		{ "1,2,", 2 },
+		{ ",1", 1 },
+		{ "1,-2", -1 },
+		{ "+1", -1 },
+		{ "4294967296", -1 },
+		{ "0x10,10", 2 },
+		{ "0x10,010", -1 },
+	};
+	unsigned int val[8];
+	bool pass = true;
+	unsigned int i;
+
+	printf("test_csv_strict:\n");
+
+	for (i = 0; i < ARRAY_SIZE(tests); i++) {
+		char buf[64];
+
+		snprintf(buf, sizeof(buf), "%s", tests[i].in);
+		pass &= check_int_ret(tests[i].in,
+				      shr_parse_csv_uint(buf, val, 8),
+				      tests[i].want);
+	}
+
+	return pass;
+}
 
 int main(void)
 {
@@ -366,6 +532,10 @@ int main(void)
 	pass &= test_csv_u32();
 	pass &= test_csv_u64();
 	pass &= test_csv_u128();
+	pass &= test_u64();
+	pass &= test_s64();
+	pass &= test_double();
+	pass &= test_csv_strict();
 
 	fflush(stdout);
 	exit(pass ? EXIT_SUCCESS : EXIT_FAILURE);

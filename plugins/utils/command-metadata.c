@@ -10,7 +10,7 @@
  * shell-completion generators, documentation, and drift checks.
  *
  * The model is captured by walking the live plugin/command tree and, for each
- * command, intercepting the options array it builds on its stack via NVME_ARGS.
+ * command, intercepting the options array it builds on its stack.
  * Capture installs a hook in argconfig_parse() (see argconfig_set_parse_hook):
  * when a command calls into the parser, the hook copies the options array into
  * the model and returns a sentinel so the command unwinds before opening any
@@ -20,7 +20,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +30,7 @@
 #endif
 
 #include <shared/fs-util.h>
+#include <shared/string-util.h>
 
 #include "command-metadata.h"
 #include "nvme-json.h"
@@ -55,7 +55,7 @@
  * changes that keep existing keys stable do not require a bump. Consumers
  * should reject a major version they do not understand.
  */
-#define COMMAND_METADATA_SCHEMA_VERSION 1
+#define COMMAND_METADATA_SCHEMA_VERSION 2
 
 /*
  * The command currently being captured; set by capture_command()
@@ -267,6 +267,8 @@ static void free_option_fields(struct command_metadata_option *o)
 	free((char *)o->option);
 	free((char *)o->meta);
 	free((char *)o->help);
+	free((char *)o->deprecated);
+	free((char *)o->old_name);
 	if (o->opt_val) {
 		const struct argconfig_opt_val *v;
 
@@ -310,6 +312,8 @@ static int copy_options(const struct argconfig_commandline_options *opts,
 		if (dup_field(opts[i].option, &dst[i].option) ||
 		    dup_field(opts[i].meta, &dst[i].meta) ||
 		    dup_field(opts[i].help, &dst[i].help) ||
+		    dup_field(opts[i].deprecated, &dst[i].deprecated) ||
+		    dup_field(opts[i].old_name, &dst[i].old_name) ||
 		    copy_opt_val(opts[i].opt_val, &dst[i].opt_val)) {
 			size_t j;
 
@@ -321,7 +325,9 @@ static int copy_options(const struct argconfig_commandline_options *opts,
 		dst[i].short_option = opts[i].short_option;
 		dst[i].config_type = opts[i].config_type;
 		dst[i].argument_type = opts[i].argument_type;
-		dst[i].hidden = opts[i].hidden;
+		dst[i].hidden = opts[i].deprecated;
+		dst[i].min = opts[i].min;
+		dst[i].max = opts[i].max;
 	}
 
 	*out = dst;
@@ -329,20 +335,79 @@ static int copy_options(const struct argconfig_commandline_options *opts,
 	return 0;
 }
 
+/* The entries of @opts with the included tables in place, see flat_copy() */
+static size_t flat_count(struct argconfig_commandline_options *opts)
+{
+	size_t n = 0;
+
+	for (; opts->option; opts++) {
+		if (opts->config_type == CFG_INCLUDE)
+			n += flat_count(opts->default_value);
+		n++;
+	}
+
+	return n;
+}
+
+/* Copy @opts to @dst, an included table behind a group of its heading */
+static size_t flat_copy(struct argconfig_commandline_options *dst,
+			struct argconfig_commandline_options *opts)
+{
+	size_t n = 0;
+
+	for (; opts->option; opts++) {
+		if (opts->config_type == CFG_INCLUDE) {
+			struct argconfig_commandline_options sep =
+				OPT_GROUP(opts->help);
+
+			memcpy(&dst[n++], &sep, sizeof(sep));
+			n += flat_copy(&dst[n], opts->default_value);
+			continue;
+		}
+		memcpy(&dst[n++], opts, sizeof(*opts));
+	}
+
+	return n;
+}
+
+/*
+ * The options of @root, the included tables behind a group of their
+ * heading: json_command() takes the options after "Global options" for the
+ * global ones. The caller frees the returned array; the entries alias the
+ * original tables.
+ */
+static struct argconfig_commandline_options *
+flatten(struct argconfig_commandline_options *root)
+{
+	struct argconfig_commandline_options *all;
+
+	all = calloc(flat_count(root) + 1, sizeof(*all));
+	if (all)
+		flat_copy(all, root);
+
+	return all;
+}
+
 /*
  * argconfig_parse() hook installed by build_model(): copies the current
- * command's options into the model, then returns the sentinel so the parser
- * unwinds before the command opens a device.
+ * command's options, the global ones included, into the model, then
+ * returns the sentinel so the parser unwinds before the command opens a
+ * device.
  */
 static int metadata_capture_hook(int argc, char **argv, const char *program_desc,
-				 struct argconfig_commandline_options *options)
+				 struct argconfig_commandline_options *root)
 {
 	(void)argc;
 	(void)argv;
 	(void)program_desc;
 
 	if (command_metadata_cur_command && !command_metadata_cur_command->captured) {
-		int err = copy_options(options,
+		__cleanup_free struct argconfig_commandline_options *all =
+			flatten(root);
+		int err = -ENOMEM;
+
+		if (all)
+			err = copy_options(all,
 				&command_metadata_cur_command->options,
 				&command_metadata_cur_command->num_options);
 		if (err)
@@ -366,6 +431,10 @@ static int capture_command(struct command_metadata_command *mc, struct command *
 	mc->name = cmd->name;
 	mc->alias = cmd->alias;
 	mc->help = cmd->help;
+	mc->device = cmd->device;
+	mc->deprecated = cmd->deprecated;
+	mc->replacement_plugin = cmd->replacement.plugin;
+	mc->replacement_command = cmd->replacement.command;
 	mc->captured = false;
 
 	/*
@@ -379,6 +448,7 @@ static int capture_command(struct command_metadata_command *mc, struct command *
 	command_metadata_capture_error = 0;
 	command_metadata_cur_command = mc;
 	capture_current_command = cmd->name;
+	command_prepare(cmd);
 	(void)cmd->fn(2, argv, cmd, plugin);
 	capture_current_command = NULL;
 	command_metadata_cur_command = NULL;
@@ -529,9 +599,9 @@ static bool opt_is_global_separator(const struct command_metadata_option *o)
 static const char *opt_argument(const struct command_metadata_option *o)
 {
 	switch (o->argument_type) {
-	case optional_argument:
+	case ARGCONFIG_ARG_OPTIONAL:
 		return "optional";
-	case no_argument:
+	case ARGCONFIG_ARG_NONE:
 		return "none";
 	default:
 		return "required";
@@ -540,7 +610,7 @@ static const char *opt_argument(const struct command_metadata_option *o)
 
 static bool opt_takes_value(const struct command_metadata_option *o)
 {
-	return o->argument_type != no_argument;
+	return o->argument_type != ARGCONFIG_ARG_NONE;
 }
 
 /*
@@ -564,24 +634,30 @@ static bool opt_is_emittable(const struct command_metadata_option *o)
  * caller owns the returned array.
  *
  * output-format is special-cased because its values are not represented via an
- * opt_val table; keep the hard-coded list below in sync with
- * validate_output_format() / DESC_OUTPUT_FORMAT. Since the whole command is
- * compiled out without json-c, "json" is always a valid value here. Every
- * other value set comes from the option's opt_val table, which is the set the
- * parser actually enforces; options whose value is unconstrained (e.g. any
- * OPT_UINT such as output-format-version) have no values array.
+ * opt_val table. Its help text lists the formats the command supports
+ * ("Output format: normal|json"), see nvme_args_set_output_formats(). Every
+ * other value set comes from the option's opt_val table: the names it
+ * accepts, a numeric option also takes a number. Options without names
+ * (e.g. output-format-version) have no values array.
  */
 static struct json_object *json_option_values(const struct command_metadata_option *o)
 {
+	static const char prefix[] = "Output format: ";
 	const struct argconfig_opt_val *v;
 	struct json_object *vals;
 
-	if (!strcmp(o->option, "output-format")) {
+	if (!strcmp(o->option, "output-format") && o->help &&
+	    !strncmp(o->help, prefix, strlen(prefix))) {
+		__cleanup_free char *formats = strdup(o->help + strlen(prefix));
+		char *p, *name;
+
+		if (!formats)
+			return NULL;
+
 		vals = json_create_array();
-		json_array_add_value_string(vals, "normal");
-		json_array_add_value_string(vals, "json");
-		json_array_add_value_string(vals, "binary");
-		json_array_add_value_string(vals, "tabular");
+		p = formats;
+		while ((name = shr_strsep(&p, "|")) != NULL)
+			json_array_add_value_string(vals, name);
 		return vals;
 	}
 	if (!o->opt_val)
@@ -591,6 +667,46 @@ static struct json_object *json_option_values(const struct command_metadata_opti
 	for (v = o->opt_val; v->str; v++)
 		json_array_add_value_string(vals, v->str);
 	return vals;
+}
+
+/* The kind of value an option takes, see argconfig_parse_type() */
+static const char *opt_type(const struct command_metadata_option *o)
+{
+	switch (o->config_type) {
+	case CFG_FLAG:
+		return "flag";
+	case CFG_INCREMENT:
+		return "count";
+	case CFG_INT:
+		return "int";
+	case CFG_BYTE:
+		return "u8";
+	case CFG_SHORT:
+		return "u16";
+	case CFG_POSITIVE:
+		return "u32";
+	case CFG_LONG:
+		return "u64";
+	case CFG_LONG_SUFFIX:
+		return "size";
+	case CFG_DOUBLE:
+		return "double";
+	case CFG_STRING:
+		return "string";
+	case CFG_ENUM:
+		return "enum";
+	case CFG_ENUM_LIST:
+		return "enum-list";
+	case CFG_FILE:
+		return "file";
+	case CFG_DIR:
+		return "directory";
+	case CFG_GROUP_SEPARATOR:
+	case CFG_INCLUDE:
+		break;
+	}
+
+	return NULL;
 }
 
 /* Build one option as a json object and add it to the given array. */
@@ -608,6 +724,15 @@ static void json_option(struct json_object *arr, const struct command_metadata_o
 	if (o->short_option)
 		json_object_add_value_string(jo, "short", shortbuf);
 	json_object_add_value_string(jo, "argument", opt_argument(o));
+	if (opt_type(o))
+		json_object_add_value_string(jo, "type", opt_type(o));
+	if (o->max) {
+		struct json_object *range = json_create_object();
+
+		json_object_add_value_uint64(range, "min", o->min);
+		json_object_add_value_uint64(range, "max", o->max);
+		json_object_add_value_object(jo, "range", range);
+	}
 	if (o->meta && opt_takes_value(o))
 		json_object_add_value_string(jo, "metavar", o->meta);
 	if (o->help)
@@ -616,6 +741,10 @@ static void json_option(struct json_object *arr, const struct command_metadata_o
 		json_object_add_value_bool(jo, "global", true);
 	if (o->hidden)
 		json_object_add_value_bool(jo, "hidden", true);
+	if (o->deprecated)
+		json_object_add_value_string(jo, "deprecated", o->deprecated);
+	if (o->old_name)
+		json_object_add_value_string(jo, "old_name", o->old_name);
 
 	vals = json_option_values(o);
 	if (vals)
@@ -625,6 +754,13 @@ static void json_option(struct json_object *arr, const struct command_metadata_o
 }
 
 /* Build one command as a json object: name, alias, description, and options. */
+/* The device operand of a command, see enum command_device */
+static const char * const device_names[] = {
+	[COMMAND_DEVICE] = "required",
+	[COMMAND_DEVICE_OPTIONAL] = "optional",
+	[COMMAND_NO_DEVICE] = "none",
+};
+
 static struct json_object *json_command(const struct command_metadata_command *c)
 {
 	struct json_object *jc, *opts;
@@ -637,12 +773,22 @@ static struct json_object *json_command(const struct command_metadata_command *c
 		json_object_add_value_string(jc, "alias", c->alias);
 	if (c->help)
 		json_object_add_value_string(jc, "description", c->help);
+	json_object_add_value_string(jc, "device", device_names[c->device]);
+	if (c->deprecated)
+		json_object_add_value_bool(jc, "deprecated", true);
+	if (c->replacement_plugin && c->replacement_command) {
+		char replacement[0x80];
+
+		snprintf(replacement, sizeof(replacement), "%s %s",
+			 c->replacement_plugin, c->replacement_command);
+		json_object_add_value_string(jc, "replacement", replacement);
+	}
 
 	opts = json_create_array();
 	for (i = 0; i < c->num_options; i++) {
 		/*
-		 * Options after the "Global options" separator are the shared
-		 * NVME_ARGS globals; flag them so generators can group them.
+		 * Options after the "Global options" separator are the
+		 * global options; flag them so generators can group them.
 		 */
 		if (opt_is_global_separator(&c->options[i])) {
 			global = true;

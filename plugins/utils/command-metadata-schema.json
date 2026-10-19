@@ -58,15 +58,29 @@
     "command": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "options"],
+      "required": ["name", "device", "options"],
       "properties": {
         "name": {
           "type": "string",
           "description": "Command name as typed on the command line."
         },
+        "device": {
+          "type": "string",
+          "enum": ["required", "optional", "none"],
+          "description": "Whether the command takes a device operand (since schema version 2)."
+        },
         "alias": {
           "type": "string",
           "description": "Alternate name accepted for the command. Omitted if none."
+        },
+        "deprecated": {
+          "type": "boolean",
+          "description": "True for a deprecated command. Absent otherwise.",
+          "const": true
+        },
+        "replacement": {
+          "type": "string",
+          "description": "The command which replaces a deprecated one, as \"<plugin> <command>\". Omitted if none."
         },
         "description": {
           "type": "string",
@@ -99,6 +113,21 @@
           "description": "Whether the option consumes an argument.",
           "enum": ["none", "required", "optional"]
         },
+        "type": {
+          "type": "string",
+          "description": "The kind of value: flag (no value), count (no value, may be repeated), int, u8, u16, u32 and u64 (numbers of that size; the unsigned ones take no negative number), size (a number with an optional binary suffix such as Ki), double, string, enum (one of \"values\"), enum-list (\"values\" separated by commas), file or directory (a path).",
+          "enum": ["flag", "count", "int", "u8", "u16", "u32", "u64", "size", "double", "string", "enum", "enum-list", "file", "directory"]
+        },
+        "range": {
+          "type": "object",
+          "description": "The numbers an unsigned option accepts, if fewer than its type holds. The names in \"values\" are accepted besides. Absent otherwise.",
+          "properties": {
+            "min": { "type": "integer", "minimum": 0 },
+            "max": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["min", "max"],
+          "additionalProperties": false
+        },
         "metavar": {
           "type": "string",
           "description": "Placeholder name for the option's value (e.g. \"NUM\", \"FMT\"). Present only for options that take a value."
@@ -117,9 +146,17 @@
           "description": "True for options accepted on the command line but suppressed from --help. Absent otherwise.",
           "const": true
         },
+        "deprecated": {
+          "type": "string",
+          "description": "The option which replaces a deprecated one, e.g. \"--verbose/-v\". A deprecated option is hidden as well. Omitted if not deprecated."
+        },
+        "old_name": {
+          "type": "string",
+          "description": "The long name of earlier versions, still accepted with a warning. Omitted if none."
+        },
         "values": {
           "type": "array",
-          "description": "The set of values the parser enforces for this option, when it constrains them to a fixed set. Absent when the value is unconstrained.",
+          "description": "The names the option accepts as values, e.g. the output formats or named special values such as \"all\" for a namespace identifier. A numeric option also takes a number. Absent when the option has no named values.",
           "items": { "type": "string" },
           "minItems": 1
         }

@@ -16,6 +16,11 @@
 #include "nvme-print.h"
 #include "plugin.h"
 
+static void free_nsp(struct libnvme_ns **n)
+{
+	libnvme_free_ns(*n);
+}
+
 int sldgm_get_drive_info(int argc, char **argv, struct command *acmd, struct plugin *plugin)
 {
 	const char *desc = "Get drive HW information";
@@ -24,24 +29,24 @@ int sldgm_get_drive_info(int argc, char **argv, struct command *acmd, struct plu
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	nvme_print_flags_t flags;
 	struct libnvme_ctrl *c;
+	/* a namespace scanned on its own isn't part of the tree */
+	__cleanup(free_nsp) struct libnvme_ns *scanned = NULL;
 	struct libnvme_ns *n;
 	struct nvme_id_ns ns = { 0 };
 	__u8 flbaf_inUse;
-	__u16 lba_size;
-	__u16 ftl_unit_size;
+	unsigned int lba_size;
+	uint64_t ftl_unit_size;
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if ((err < 0) || !(flags == NORMAL || flags == JSON)) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	err = libnvme_scan_topology(ctx, NULL, NULL);
 	if (err)
@@ -52,11 +57,16 @@ int sldgm_get_drive_info(int argc, char **argv, struct command *acmd, struct plu
 		n = libnvme_ctrl_first_ns(c);
 	else {
 		err = libnvme_scan_namespace(ctx,
-			libnvme_transport_handle_get_name(hdl), &n);
+			libnvme_transport_handle_get_name(hdl), &scanned);
 		if (err) {
 			nvme_show_error("solidigm-vs-drive-info: drive missing namespace");
 			return err;
 		}
+		n = scanned;
+	}
+	if (!n) {
+		nvme_show_error("solidigm-vs-drive-info: no namespace");
+		return -ENODEV;
 	}
 
 	err = libnvme_ns_identify(n, &ns);
@@ -71,18 +81,23 @@ int sldgm_get_drive_info(int argc, char **argv, struct command *acmd, struct plu
 	}
 
 	nvme_id_ns_flbas_to_lbaf_inuse(ns.flbas, &flbaf_inUse);
-	lba_size = 1 << ns.lbaf[flbaf_inUse].ds;
-	ftl_unit_size = (le16_to_cpu(ns.npwg) + 1) * lba_size / 1024;
+	lba_size = nvme_lbaf_data_size(ns.lbaf[flbaf_inUse].ds);
+	if (!lba_size) {
+		nvme_show_error("solidigm-vs-drive-info: bad LBA data size");
+		return -EINVAL;
+	}
+	ftl_unit_size = (le16_to_cpu(ns.npwg) + 1ULL) * lba_size / 1024;
 
 	if (flags == JSON) {
 		struct json_object *root = json_create_object();
 
-		json_object_add_value_int(root, FTL_unit_size_str, ftl_unit_size);
+		json_object_add_value_uint64(root, FTL_unit_size_str,
+					     ftl_unit_size);
 		json_print_object(root, NULL);
 		printf("\n");
 		json_free_object(root);
 	} else {
-		printf("%s: %d\n", FTL_unit_size_str, ftl_unit_size);
+		printf("%s: %"PRIu64"\n", FTL_unit_size_str, ftl_unit_size);
 	}
 
 	return err;

@@ -29,6 +29,8 @@
 
 #include <ccan/endian/endian.h>
 #include <shared/compiler-attributes-util.h>
+#include <shared/hex-util.h>
+#include <shared/string-util.h>
 #include <shared/suffix-util.h>
 
 #include "cleanup.h"
@@ -93,8 +95,7 @@ static int huawei_get_nvme_info(struct libnvme_transport_handle *hdl,
 	if (err)
 		return err;
 
-	strncpy(item->node, node, sizeof(item->node));
-	item->node[sizeof(item->node) - 1] = '\0';
+	shr_strscpy(item->node, node, sizeof(item->node));
 	item->block = libnvme_transport_handle_is_ns(hdl);
 
 	if (item->ns.vs[0] == 0) {
@@ -231,14 +232,11 @@ static void huawei_print_list_item(struct huawei_list_item *list_item,
 
 	char usage[128];
 	char nguid_buf[2 * sizeof(list_item->ns.nguid) + 1];
-	char *nguid = nguid_buf;
-	int i;
 
-	sprintf(usage, "%6.2f %2sB / %6.2f %2sB", nuse, u_suffix, nsze, s_suffix);
-
-	memset(nguid, 0, sizeof(nguid_buf));
-	for (i = 0; i < sizeof(list_item->ns.nguid); i++)
-		nguid += sprintf(nguid, "%02x", list_item->ns.nguid[i]);
+	snprintf(usage, sizeof(usage), "%6.2f %2sB / %6.2f %2sB", nuse,
+		 u_suffix, nsze, s_suffix);
+	shr_bin_to_hex(nguid_buf, sizeof(nguid_buf), list_item->ns.nguid,
+		       sizeof(list_item->ns.nguid), 0);
 
 	printf("%-*.*s %-*.*s %-*.*s %-*d %-*.*s %-*.*s\n",
 		element_len.node, element_len.node, list_item->node,
@@ -327,17 +325,14 @@ static int huawei_list(int argc, char **argv, struct command *acmd,
 	struct huawei_list_item *list_items;
 	unsigned int i, n;
 	unsigned int huawei_num = 0;
-	nvme_print_flags_t fmt;
 	int ret;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
-		return ret;
-
-	ret = validate_output_format(nvme_args.output_format, &fmt);
-	if (ret < 0 || (fmt != JSON && fmt != NORMAL))
 		return ret;
 
 	ret = nvme_create_global_ctx(&ctx);
@@ -375,7 +370,7 @@ static int huawei_list(int argc, char **argv, struct command *acmd,
 
 	if (huawei_num > 0) {
 #ifdef CONFIG_JSONC
-		if (fmt == JSON)
+		if (nvme_args.output_flags == JSON)
 			huawei_json_print_list_items(list_items, huawei_num);
 		else
 #endif /* CONFIG_JSONC */
@@ -411,7 +406,8 @@ static struct command huawei_list_cmd = {
 	.name = "list",
 	.help = "List all Huawei NVMe devices and namespaces on machine",
 	.fn = huawei_list,
-	.no_device = true,
+	.output_formats = NORMAL | JSON,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command huawei_id_ctrl_cmd = {

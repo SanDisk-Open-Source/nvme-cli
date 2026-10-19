@@ -266,20 +266,23 @@ static int ocp_latency_monitor_log(int argc, char **argv,
 				   struct command *command,
 				   struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Retrieve latency monitor log data.";
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	int ret = 0;
 
-	NVME_ARGS(opts,
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
 		return ret;
 
 	ret = get_c3_log_page(hdl, nvme_args.output_format,
-			      !argconfig_parse_seen(opts, "no-uuid"));
+			      !no_uuid_flag);
 	if (ret)
 		nvme_show_error(
 			"ERROR : OCP : Failure reading the C3 Log Page, ret = %d\n",
@@ -337,17 +340,33 @@ int ocp_set_latency_monitor_feature(int argc, char **argv, struct command *acmd,
 		.latency_monitor_feature_enable = 0x1,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("active_bucket_timer_threshold", 't', &cfg.active_bucket_timer_threshold, active_bucket_timer_threshold),
-		OPT_UINT("active_threshold_a", 'a', &cfg.active_threshold_a, active_threshold_a),
-		OPT_UINT("active_threshold_b", 'b', &cfg.active_threshold_b, active_threshold_b),
-		OPT_UINT("active_threshold_c", 'c', &cfg.active_threshold_c, active_threshold_c),
-		OPT_UINT("active_threshold_d", 'd', &cfg.active_threshold_d, active_threshold_d),
-		OPT_UINT("active_latency_config", 'f', &cfg.active_latency_config, active_latency_config),
-		OPT_UINT("active_latency_minimum_window", 'w', &cfg.active_latency_minimum_window, active_latency_minimum_window),
-		OPT_UINT("debug_log_trigger_enable", 'r', &cfg.debug_log_trigger_enable, debug_log_trigger_enable),
-		OPT_UINT("discard_debug_log", 'l', &cfg.discard_debug_log, discard_debug_log),
-		OPT_UINT("latency_monitor_feature_enable", 'e', &cfg.latency_monitor_feature_enable, latency_monitor_feature_enable));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("active_bucket_timer_threshold", 't',
+			 &cfg.active_bucket_timer_threshold,
+			 active_bucket_timer_threshold),
+		OPT_BYTE("active_threshold_a", 'a', &cfg.active_threshold_a,
+			 active_threshold_a),
+		OPT_BYTE("active_threshold_b", 'b', &cfg.active_threshold_b,
+			 active_threshold_b),
+		OPT_BYTE("active_threshold_c", 'c', &cfg.active_threshold_c,
+			 active_threshold_c),
+		OPT_BYTE("active_threshold_d", 'd', &cfg.active_threshold_d,
+			 active_threshold_d),
+		OPT_SHRT("active_latency_config", 'f',
+			 &cfg.active_latency_config, active_latency_config),
+		OPT_BYTE("active_latency_minimum_window", 'w',
+			 &cfg.active_latency_minimum_window,
+			 active_latency_minimum_window),
+		OPT_SHRT("debug_log_trigger_enable", 'r',
+			 &cfg.debug_log_trigger_enable,
+			 debug_log_trigger_enable),
+		OPT_BYTE("discard_debug_log", 'l', &cfg.discard_debug_log,
+			 discard_debug_log),
+		OPT_BYTE("latency_monitor_feature_enable", 'e',
+			 &cfg.latency_monitor_feature_enable,
+			 latency_monitor_feature_enable),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -403,6 +422,7 @@ int ocp_set_latency_monitor_feature(int argc, char **argv, struct command *acmd,
 static int ocp_get_latency_monitor_feature(int argc, char **argv, struct command *acmd,
 					   struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Issue Get Feature command (FID: 0xC5) Latency Monitor";
 	const char *sel = "[0-3]: current/default/saved/supported/";
 	const char *nsid = "Byte[04-07]: Namespace Identifier Valid/Invalid/Inactive";
@@ -425,16 +445,20 @@ static int ocp_get_latency_monitor_feature(int argc, char **argv, struct command
 		.nsid = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel", 's', &cfg.sel, sel),
-		OPT_UINT("namespace-id", 'n', &cfg.nsid, nsid),
-		OPT_FLAG("no-uuid", 'u', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel",          's', &cfg.sel,      sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_UINT("namespace-id", 'n', &cfg.nsid, nsid,
+			 nvme_nsid_values),
+		OPT_FLAG("no-uuid",      'u', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	uuid = !argconfig_parse_seen(opts, "no-uuid");
+	uuid = !no_uuid_flag;
 
 	if (uuid) {
 		/* OCP 2.0 requires UUID index support */
@@ -547,6 +571,7 @@ static int eol_plp_failure_mode_set(struct libnvme_transport_handle *hdl, const 
 static int eol_plp_failure_mode(int argc, char **argv, struct command *acmd,
 				struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Define EOL or PLP circuitry failure mode.\n"
 			   "No argument prints current mode.";
 	const char *mode = "[0-3]: default/rom/wtm/normal";
@@ -568,23 +593,26 @@ static int eol_plp_failure_mode(int argc, char **argv, struct command *acmd,
 		.sel = 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_BYTE("mode", 'm', &cfg.mode, mode),
-		  OPT_FLAG("save", 's', &cfg.save, save),
-		  OPT_BYTE("sel", 'S', &cfg.sel, sel),
-		  OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("mode",    'm', &cfg.mode,     mode),
+		OPT_FLAG("save",    's', &cfg.save,     save),
+		OPT_BYTE("sel",     'S', &cfg.sel,      sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	if (argconfig_parse_seen(opts, "mode"))
+	if (argconfig_given(opts, &cfg.mode))
 		err = eol_plp_failure_mode_set(hdl, nsid, fid, cfg.mode,
 					       cfg.save,
-					       !argconfig_parse_seen(opts, "no-uuid"));
+					       !no_uuid_flag);
 	else
 		err = eol_plp_failure_mode_get(hdl, nsid, fid, cfg.sel,
-					       !argconfig_parse_seen(opts, "no-uuid"));
+					       !no_uuid_flag);
 
 	return err;
 }
@@ -936,6 +964,7 @@ int parse_ocp_telemetry_log(struct ocp_telemetry_parse_options *options)
 
 static int ocp_telemetry_log(int argc, char **argv, struct command *acmd, struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Retrieve and parse OCP Telemetry log.";
 	const char *telemetry_log = "Telemetry log binary;\n 'host.bin' or 'controller.bin'";
 	const char *string_log = "String log binary; 'C9.bin'";
@@ -951,6 +980,13 @@ static int ocp_telemetry_log(int argc, char **argv, struct command *acmd, struct
 	const char *telemetry_type = "Telemetry Type; 'host' or 'controller'\n"
 			"('host0' and 'host1' are deprecated)";
 	const char *hgen = "Have the host tell the controller to generate the report (default 1)";
+	struct argconfig_opt_val tele_types[] = {
+		VAL_ENUM("host", TELEMETRY_TYPE_HOST),
+		VAL_ENUM("controller", TELEMETRY_TYPE_CONTROLLER),
+		VAL_ENUM("host0", 0),
+		VAL_ENUM("host1", 1),
+		VAL_END()
+	};
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -960,7 +996,7 @@ static int ocp_telemetry_log(int argc, char **argv, struct command *acmd, struct
 	struct libnvme_passthru_cmd cmd;
 	bool is_support_telemetry_controller;
 	struct ocp_telemetry_parse_options opt = {0};
-	int tele_type = 0;
+	int tele_type = TELEMETRY_TYPE_HOST;
 	int tele_area = 0;
 	__u32 host_gen = 1;
 	char file_path_telemetry[PATH_MAX], file_path_string[PATH_MAX];
@@ -968,21 +1004,22 @@ static int ocp_telemetry_log(int argc, char **argv, struct command *acmd, struct
 	const char *tele_log_suffix = "telemetry.bin";
 	bool host_behavior_changed = false;
 
-	NVME_ARGS(opts,
-		OPT_STR("telemetry-log", 'l', &opt.telemetry_log, telemetry_log),
-		OPT_STR("string-log", 's', &opt.string_log, string_log),
-		OPT_FILE("output-file", 'f', &opt.output_file, output_file),
-		OPT_INT("data-area", 'a', &opt.data_area, data_area),
-		OPT_STR("telemetry-type", 't', &opt.telemetry_type, telemetry_type),
-		OPT_UINT("host-generate", 'g', &host_gen, hgen),
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_FILE("telemetry-log",  'l', &opt.telemetry_log,
+			 telemetry_log),
+		OPT_FILE("string-log",     's', &opt.string_log,  string_log),
+		OPT_FILE("output-file",    'f', &opt.output_file, output_file),
+		OPT_INT("data-area",       'a', &opt.data_area,   data_area),
+		OPT_ENUM("telemetry-type", 't', &tele_type, telemetry_type,
+			 tele_types),
+		OPT_UINT("host-generate",  'g', &host_gen,        hgen),
+		OPT_FLAG("no-uuid",        'n', &no_uuid_flag,    no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
-
-	if (opt.telemetry_type == 0)
-		opt.telemetry_type = "host";
 
 	if (libnvme_transport_handle_is_ns(hdl)) {
 		err = libnvme_get_nsid(hdl, &nsid);
@@ -1011,31 +1048,19 @@ static int ocp_telemetry_log(int argc, char **argv, struct command *acmd, struct
 
 	tele_area = opt.data_area;
 
-	if (opt.telemetry_type) {
-		if (!strcmp(opt.telemetry_type, "host0")) {
-			fprintf(stderr, "WARNING: '--telemetry-type host0' is deprecated and will be removed in the next major version. Use '--telemetry-type host --host-generate=0' instead.\n");
-			opt.telemetry_type = "host";
-			tele_type = TELEMETRY_TYPE_HOST;
-			host_gen = 0;
-		} else if (!strcmp(opt.telemetry_type, "host1")) {
-			fprintf(stderr, "WARNING: '--telemetry-type host1' is deprecated and will be removed in the next major version. Use '--telemetry-type host' instead.\n");
-			opt.telemetry_type = "host";
-			tele_type = TELEMETRY_TYPE_HOST;
-			host_gen = 1;
-		} else if (!strcmp(opt.telemetry_type, "host"))
-			tele_type = TELEMETRY_TYPE_HOST;
-		else if (!strcmp(opt.telemetry_type, "controller"))
-			tele_type = TELEMETRY_TYPE_CONTROLLER;
-		else {
-			nvme_show_error(
-			    "telemetry-type should be host, host0, host1 or controller.\n");
-			goto out;
-		}
-	} else {
-		tele_type = TELEMETRY_TYPE_HOST; //Default Type - Host
-		opt.telemetry_type = "host";
-		nvme_show_result("Missing telemetry-type. Using default - host.\n");
+	if (tele_type == 0) {
+		fprintf(stderr,
+			"WARNING: '--telemetry-type host0' is deprecated and will be removed in the next major version. Use '--telemetry-type host --host-generate=0' instead.\n");
+		tele_type = TELEMETRY_TYPE_HOST;
+		host_gen = 0;
+	} else if (tele_type == 1) {
+		fprintf(stderr,
+			"WARNING: '--telemetry-type host1' is deprecated and will be removed in the next major version. Use '--telemetry-type host' instead.\n");
+		tele_type = TELEMETRY_TYPE_HOST;
+		host_gen = 1;
 	}
+	opt.telemetry_type = tele_type == TELEMETRY_TYPE_CONTROLLER ?
+			     "controller" : "host";
 
 	if (!opt.telemetry_log) {
 		nvme_show_result("\nMissing telemetry-log. Fetching from drive...\n");
@@ -1054,7 +1079,8 @@ static int ocp_telemetry_log(int argc, char **argv, struct command *acmd, struct
 		}
 
 		/* Pull the Telemetry log */
-		sprintf(file_path_telemetry, "%s-%s", opt.output_file, tele_log_suffix);
+		snprintf(file_path_telemetry, sizeof(file_path_telemetry),
+			 "%s-%s", opt.output_file, tele_log_suffix);
 		err = get_telemetry_log_page_data(hdl,
 				tele_type,
 				!!host_gen,
@@ -1080,10 +1106,11 @@ static int ocp_telemetry_log(int argc, char **argv, struct command *acmd, struct
 		nvme_show_result("Missing string-log. Fetching from drive...\n");
 
 		/* Pull String log */
-		sprintf(file_path_string, "%s-%s", opt.output_file, string_suffix);
+		snprintf(file_path_string, sizeof(file_path_string), "%s-%s",
+			 opt.output_file, string_suffix);
 		err = get_c9_log_page_data(hdl, 0, 1, (const char *)file_path_string,
 					   NULL, NULL, NULL,
-					   !argconfig_parse_seen(opts, "no-uuid"));
+					   !no_uuid_flag);
 		if (err) {
 			nvme_show_error("Failed to fetch string-log from the drive.");
 			goto out;
@@ -1092,7 +1119,7 @@ static int ocp_telemetry_log(int argc, char **argv, struct command *acmd, struct
 		opt.string_log = file_path_string;
 	}
 
-	if (argconfig_parse_seen(opts, "output-format"))
+	if (argconfig_given(opts, &nvme_args.output_format))
 		opt.output_format = nvme_args.output_format;
 
 	if (!opt.output_format) {
@@ -1201,6 +1228,7 @@ out:
 static int ocp_unsupported_requirements_log(int argc, char **argv, struct command *acmd,
 					    struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Retrieve unsupported requirements log data.";
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -1214,15 +1242,17 @@ static int ocp_unsupported_requirements_log(int argc, char **argv, struct comman
 		.output_format = "normal",
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
 		return ret;
 
 	ret = get_c5_log_page(hdl, cfg.output_format,
-			      !argconfig_parse_seen(opts, "no-uuid"));
+			      !no_uuid_flag);
 	if (ret)
 		nvme_show_error("ERROR : OCP : Failure reading the C5 Log Page, ret = %d", ret);
 
@@ -1303,6 +1333,7 @@ out:
 
 static int ocp_error_recovery_log(int argc, char **argv, struct command *acmd, struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Retrieve C1h Error Recovery Log data.";
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -1316,15 +1347,17 @@ static int ocp_error_recovery_log(int argc, char **argv, struct command *acmd, s
 		.output_format = "normal",
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
 		return ret;
 
 	ret = get_c1_log_page(hdl, cfg.output_format,
-			      !argconfig_parse_seen(opts, "no-uuid"));
+			      !no_uuid_flag);
 	if (ret)
 		nvme_show_error("ERROR : OCP : Failure reading the C1h Log Page, ret = %d", ret);
 
@@ -1404,20 +1437,23 @@ out:
 
 static int ocp_device_capabilities_log(int argc, char **argv, struct command *acmd, struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Retrieve C4h Device Capabilities Log data.";
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	int ret = 0;
 
-	NVME_ARGS(opts,
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
 		return ret;
 
 	ret = get_c4_log_page(hdl, nvme_args.output_format,
-			      !argconfig_parse_seen(opts, "no-uuid"));
+			      !no_uuid_flag);
 	if (ret)
 		nvme_show_error("ERROR : OCP : Failure reading the C4h Log Page, ret = %d", ret);
 
@@ -1472,14 +1508,16 @@ static int ocp_set_telemetry_profile_feature(int argc, char **argv, struct comma
 		.tps = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("telemetry-profile-select", 't', &cfg.tps, tps));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("telemetry-profile-select", 't', &cfg.tps, tps),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	if (argconfig_parse_seen(opts, "telemetry-profile-select"))
+	if (argconfig_given(opts, &cfg.tps))
 		err = ocp_set_telemetry_profile(hdl, cfg.tps);
 	else
 		nvme_show_error("Telemetry Profile Select is a required argument");
@@ -1495,6 +1533,7 @@ static int ocp_set_telemetry_profile_feature(int argc, char **argv, struct comma
 static int ocp_get_telemetry_profile_feature(int argc, char **argv, struct command *acmd,
 					      struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Issue Get Feature command (FID: 0xC8) Telemetry Profile";
 	const char *sel = "[0-3]: current/default/saved/supported/";
 	const char *nsid = "Byte[04-07]: Namespace Identifier Valid/Invalid/Inactive";
@@ -1517,16 +1556,20 @@ static int ocp_get_telemetry_profile_feature(int argc, char **argv, struct comma
 		.nsid = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel", 's', &cfg.sel, sel),
-		OPT_UINT("namespace-id", 'n', &cfg.nsid, nsid),
-		OPT_FLAG("no-uuid", 'u', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel",          's', &cfg.sel,      sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_UINT("namespace-id", 'n', &cfg.nsid, nsid,
+			 nvme_nsid_values),
+		OPT_FLAG("no-uuid",      'u', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	uuid = !argconfig_parse_seen(opts, "no-uuid");
+	uuid = !no_uuid_flag;
 
 	if (uuid) {
 		/* OCP 2.0 requires UUID index support */
@@ -1593,6 +1636,7 @@ set_dssd_power_state(struct libnvme_transport_handle *hdl,
 static int set_dssd_power_state_feature(int argc, char **argv, struct command *acmd,
 										struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Define DSSD Power State (Feature Identifier C7h) Set Feature.";
 	const char *power_state = "DSSD Power State to set in watts";
 	const char *save = "Specifies that the controller shall save the attribute";
@@ -1611,18 +1655,20 @@ static int set_dssd_power_state_feature(int argc, char **argv, struct command *a
 		.save = false,
 	};
 
-	NVME_ARGS(opts,
+	OPT_ARGS(opts) = {
 		OPT_BYTE("power-state", 'p', &cfg.power_state, power_state),
-		OPT_FLAG("save", 's', &cfg.save, save),
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+		OPT_FLAG("save",        's', &cfg.save,        save),
+		OPT_FLAG("no-uuid",     'n', &no_uuid_flag,    no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	if (argconfig_parse_seen(opts, "power-state"))
+	if (argconfig_given(opts, &cfg.power_state))
 		err = set_dssd_power_state(hdl, nsid, OCP_FID_DSSDPS, cfg.power_state, cfg.save,
-					   !argconfig_parse_seen(opts, "no-uuid"));
+					   !no_uuid_flag);
 
 	return err;
 }
@@ -1666,6 +1712,8 @@ static int get_dssd_power_state(struct libnvme_transport_handle *hdl, const __u3
 static int get_dssd_power_state_feature(int argc, char **argv, struct command *acmd,
 										struct plugin *plugin)
 {
+	bool all_flag = false;
+	bool no_uuid_flag = false;
 	const char *desc = "Define DSSD Power State (Feature Identifier C7h) Get Feature.";
 	const char *all = "Print out all 3 values at once - Current, Default, and Saved";
 	const char *sel = "[0-3]: current/default/saved/supported/";
@@ -1685,25 +1733,28 @@ static int get_dssd_power_state_feature(int argc, char **argv, struct command *a
 		.all = false,
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel", 'S', &cfg.sel, sel),
-		OPT_FLAG("all", 'a', NULL, all),
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel",     'S', &cfg.sel,      sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_FLAG("all",     'a', &all_flag,     all),
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	if (argconfig_parse_seen(opts, "all")) {
+	if (all_flag) {
 		for (i = 0; i < 3; i++) {
 			err = get_dssd_power_state(hdl, nsid, fid, i,
-							!argconfig_parse_seen(opts, "no-uuid"));
+							!no_uuid_flag);
 			if (err)
 				break;
 		}
-	} else if (argconfig_parse_seen(opts, "sel"))
+	} else if (argconfig_given(opts, &cfg.sel))
 		err = get_dssd_power_state(hdl, nsid, fid, cfg.sel,
-					       !argconfig_parse_seen(opts, "no-uuid"));
+					       !no_uuid_flag);
 	else
 		nvme_show_error("Required to have --sel as an argument, or pass the --all flag.");
 
@@ -1719,6 +1770,7 @@ static int get_dssd_power_state_feature(int argc, char **argv, struct command *a
 static int set_plp_health_check_interval(int argc, char **argv, struct command *acmd,
 					 struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 
 	const char *desc = "Issue Set Feature command (FID: 0xC6) PLP Health Check Interval";
 	const char *plp_health_interval = "[31:16]:PLP Health Check Interval";
@@ -1731,7 +1783,7 @@ static int set_plp_health_check_interval(int argc, char **argv, struct command *
 	__u8 uidx = 0;
 
 	struct config {
-		__le16 plp_health_interval;
+		__u16 plp_health_interval;
 		bool sv;
 	};
 
@@ -1740,17 +1792,20 @@ static int set_plp_health_check_interval(int argc, char **argv, struct command *
 		.sv = false,
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("plp_health_interval", 'p', &cfg.plp_health_interval, plp_health_interval),
-		OPT_FLAG("save", 's', &cfg.sv, sv),
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("plp_health_interval", 'p', &cfg.plp_health_interval,
+			 plp_health_interval),
+		OPT_FLAG("save",                's', &cfg.sv,       sv),
+		OPT_FLAG("no-uuid",             'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
 
-	if (!argconfig_parse_seen(opts, "no-uuid")) {
+	if (!no_uuid_flag) {
 		/* OCP 2.0 requires UUID index support */
 		err = ocp_get_uuid_index(hdl, &uidx);
 		if (err || !uidx) {
@@ -1792,8 +1847,11 @@ static int get_plp_health_check_interval(int argc, char **argv, struct command *
 		.sel = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel", 'S', &cfg.sel, sel));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel", 'S', &cfg.sel, sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1844,9 +1902,11 @@ static int set_dssd_async_event_config(int argc, char **argv, struct command *ac
 		.sv = false,
 	};
 
-	NVME_ARGS(opts,
+	OPT_ARGS(opts) = {
 		OPT_FLAG("enable-panic-notices", 'e', &cfg.epn, epn),
-		OPT_FLAG("save", 's', &cfg.sv, sv));
+		OPT_FLAG("save",                 's', &cfg.sv,  sv),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1892,8 +1952,11 @@ static int get_dssd_async_event_config(int argc, char **argv, struct command *ac
 		.sel = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel", 'S', &cfg.sel, sel));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel", 'S', &cfg.sel, sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1954,6 +2017,7 @@ static int get_c9_log_page(struct libnvme_transport_handle *hdl,
 static int ocp_telemetry_str_log_format(int argc, char **argv, struct command *acmd,
 					struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	int ret = 0;
@@ -1974,21 +2038,25 @@ static int ocp_telemetry_str_log_format(int argc, char **argv, struct command *a
 		.output_file = NULL,
 	};
 
-	NVME_ARGS(opts,
+	OPT_ARGS(opts) = {
 		OPT_FILE("output-file", 'f', &cfg.output_file, output_file),
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+		OPT_FLAG("no-uuid",     'n', &no_uuid_flag,    no_uuid),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
 		return ret;
 
 	if (cfg.output_file != NULL)
-		sprintf(file_path, "%s-%s", cfg.output_file, string_suffix);
+		snprintf(file_path, sizeof(file_path), "%s-%s", cfg.output_file,
+			 string_suffix);
 	else
-		sprintf(file_path, "%s", DEFAULT_STRING_BIN);
+		snprintf(file_path, sizeof(file_path), "%s",
+			 DEFAULT_STRING_BIN);
 
 	ret = get_c9_log_page(hdl, cfg.output_format, file_path,
-			      !argconfig_parse_seen(opts, "no-uuid"));
+			      !no_uuid_flag);
 	if (ret)
 		nvme_show_error("ERROR : OCP : Failure reading the C9 Log Page, ret = %d", ret);
 
@@ -2072,6 +2140,7 @@ out:
 static int ocp_tcg_configuration_log(int argc, char **argv, struct command *acmd,
 					    struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Retrieve TCG Configuration Log Page Data";
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -2085,15 +2154,17 @@ static int ocp_tcg_configuration_log(int argc, char **argv, struct command *acmd
 		.output_format = "normal",
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
 		return ret;
 
 	ret = get_c7_log_page(hdl, cfg.output_format,
-			      !argconfig_parse_seen(opts, "no-uuid"));
+			      !no_uuid_flag);
 	if (ret)
 		nvme_show_error("ERROR : OCP : Failure reading the C7 Log Page, ret = %d", ret);
 
@@ -2188,6 +2259,8 @@ static int error_injection_get(struct libnvme_transport_handle *hdl, const __u8 
 
 static int get_error_injection(int argc, char **argv, struct command *acmd, struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
+	bool all_ns_flag = false;
 	const char *desc = "Get Error Injection Feature";
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -2199,10 +2272,13 @@ static int get_error_injection(int argc, char **argv, struct command *acmd, stru
 	struct config cfg = { 0 };
 
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel", 's', &cfg.sel, sel),
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid),
-		OPT_FLAG("all-ns", 'a', NULL, all_ns));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel",     's', &cfg.sel,      sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_FLAG("all-ns",  'a', &all_ns_flag,  all_ns),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -2214,9 +2290,9 @@ static int get_error_injection(int argc, char **argv, struct command *acmd, stru
 	 * OCP v2.0r21 - NSID: Shall be set to FFFFFFFFh.
 	 * OCP v2.5 - NSID: The host should either clear this to zero or set this to FFFFFFFFh
 	 */
-	nsid = argconfig_parse_seen(opts, "all-ns") ? NVME_NSID_ALL : 0;
+	nsid = all_ns_flag ? NVME_NSID_ALL : 0;
 
-	return error_injection_get(hdl, cfg.sel, !argconfig_parse_seen(opts, "no-uuid"), nsid);
+	return error_injection_get(hdl, cfg.sel, !no_uuid_flag, nsid);
 }
 
 static int error_injection_set(struct libnvme_transport_handle *hdl, struct erri_config *cfg, bool uuid, __u32 nsid)
@@ -2282,6 +2358,8 @@ static int error_injection_set(struct libnvme_transport_handle *hdl, struct erri
 
 static int set_error_injection(int argc, char **argv, struct command *acmd, struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
+	bool all_ns_flag = false;
 	const char *desc = "Inject error conditions";
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -2292,13 +2370,15 @@ static int set_error_injection(int argc, char **argv, struct command *acmd, stru
 		.number = 1,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FILE("data", 'd', &cfg.file, data),
-		  OPT_BYTE("number", 'n', &cfg.number, number),
-		  OPT_FLAG("no-uuid", 'N', NULL, no_uuid),
-		  OPT_FLAG("all-ns", 'a', NULL, all_ns),
-		  OPT_SHRT("type", 't', &cfg.type, type),
-		  OPT_SHRT("nrtdp", 'r', &cfg.nrtdp, nrtdp));
+	OPT_ARGS(opts) = {
+		OPT_FILE("data",    'd', &cfg.file,     data),
+		OPT_BYTE("number",  'n', &cfg.number,   number),
+		OPT_FLAG("no-uuid", 'N', &no_uuid_flag, no_uuid),
+		OPT_FLAG("all-ns",  'a', &all_ns_flag,  all_ns),
+		OPT_SHRT("type",    't', &cfg.type,     type),
+		OPT_SHRT("nrtdp",   'r', &cfg.nrtdp,    nrtdp),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -2310,8 +2390,8 @@ static int set_error_injection(int argc, char **argv, struct command *acmd, stru
 	 * OCP v2.0r21 - NSID: Shall be set to FFFFFFFFh.
 	 * OCP v2.5 - NSID: The host should either clear this to zero or set this to FFFFFFFFh
 	 */
-	nsid = argconfig_parse_seen(opts, "all-ns") ? NVME_NSID_ALL : 0;
-	return error_injection_set(hdl, &cfg, !argconfig_parse_seen(opts, "no-uuid"), nsid);
+	nsid = all_ns_flag ? NVME_NSID_ALL : 0;
+	return error_injection_set(hdl, &cfg, !no_uuid_flag, nsid);
 }
 
 static int enable_ieee1667_silo_get(struct libnvme_transport_handle *hdl, const __u8 sel, bool uuid)
@@ -2350,6 +2430,7 @@ static int enable_ieee1667_silo_get(struct libnvme_transport_handle *hdl, const 
 static int get_enable_ieee1667_silo(int argc, char **argv, struct command *acmd,
 				    struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Get Enable IEEE1667 Silo Feature";
 	int err;
 	struct config {
@@ -2360,22 +2441,23 @@ static int get_enable_ieee1667_silo(int argc, char **argv, struct command *acmd,
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel", 's', &cfg.sel, sel),
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel",     's', &cfg.sel,      sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	return enable_ieee1667_silo_get(hdl, cfg.sel, !argconfig_parse_seen(opts, "no-uuid"));
+	return enable_ieee1667_silo_get(hdl, cfg.sel, !no_uuid_flag);
 }
 
 static int enable_ieee1667_silo_set(struct libnvme_transport_handle *hdl,
-				    struct argconfig_commandline_options *opts)
+				    bool enable, bool save, bool uuid)
 {
-	bool enable = argconfig_parse_seen(opts, "enable");
-	bool save = argconfig_parse_seen(opts, "save");
 	struct ieee1667_get_cq_entry cq_entry;
 	const __u8 fid = OCP_FID_1667;
 	__u64 result;
@@ -2383,7 +2465,7 @@ static int enable_ieee1667_silo_set(struct libnvme_transport_handle *hdl,
 	__u8 uidx = 0;
 	int err;
 
-	if (!argconfig_parse_seen(opts, "no-uuid")) {
+	if (uuid) {
 		/* OCP 2.0 requires UUID index support */
 		err = ocp_get_uuid_index(hdl, &uidx);
 		if (err || !uidx) {
@@ -2410,21 +2492,28 @@ static int enable_ieee1667_silo_set(struct libnvme_transport_handle *hdl,
 static int set_enable_ieee1667_silo(int argc, char **argv, struct command *acmd,
 				    struct plugin *plugin)
 {
+	const char *enable = "enable the silo, disable it if not given";
+	bool enable_flag = false;
+	bool save_flag = false;
+	bool no_uuid_flag = false;
 	int err;
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 
-	NVME_ARGS(opts,
-		OPT_FLAG("enable", 'e', NULL, no_uuid),
-		OPT_FLAG("save", 's', NULL, save),
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("enable",  'e', &enable_flag,  enable),
+		OPT_FLAG("save",    's', &save_flag,    save),
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, enable_ieee1667_silo, opts);
 	if (err)
 		return err;
 
-	return enable_ieee1667_silo_set(hdl, opts);
+	return enable_ieee1667_silo_set(hdl, enable_flag, save_flag,
+					!no_uuid_flag);
 }
 
 static int hwcomp_log(int argc, char **argv, struct command *acmd, struct plugin *plugin)
@@ -2463,20 +2552,18 @@ static int ocp_get_persistent_event_log(int argc, char **argv,
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_BYTE("action",       'a', &cfg.action,        action),
-		  OPT_UINT("log_len",      'l', &cfg.log_len,       log_len),
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,    raw_use));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("action",     'a', &cfg.action,     action),
+		OPT_UINT("log_len",    'l', &cfg.log_len,    log_len),
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_use),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -2563,6 +2650,7 @@ static int ocp_get_idle_wakeup_time_config_feature(int argc, char **argv,
 						    struct command *acmd,
 						    struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Issue Get Feature command (FID: 0xCA) IWUT";
 	const char *sel = "[0-3]: current/default/saved/supported/";
 	const char *nsid = "Byte[04-07]: NSID Valid/Invalid/Inactive";
@@ -2586,16 +2674,20 @@ static int ocp_get_idle_wakeup_time_config_feature(int argc, char **argv,
 		.nsid = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel", 's', &cfg.sel, sel),
-		OPT_UINT("namespace-id", 'n', &cfg.nsid, nsid),
-		OPT_FLAG("no-uuid", 'u', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel",          's', &cfg.sel,      sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_UINT("namespace-id", 'n', &cfg.nsid, nsid,
+			 nvme_nsid_values),
+		OPT_FLAG("no-uuid",      'u', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	uuid = !argconfig_parse_seen(opts, "no-uuid");
+	uuid = !no_uuid_flag;
 
 	if (uuid) {
 		/* OCP 2.0 requires UUID index support */

@@ -6,6 +6,7 @@
  * Authors: Martin Belanger <martin.belanger@dell.com>
  */
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -256,6 +257,116 @@ static bool test_kv_keymatch(void)
 	return pass;
 }
 
+static bool check_escape(const char *in, const char *want)
+{
+	char *out = shr_escape(in);
+	bool ok = out && !strcmp(out, want);
+
+	printf(" - \"%s\" -> \"%s\" [%s]\n", want, out ? out : "(null)",
+	       ok ? "PASS" : "FAIL");
+	free(out);
+	return ok;
+}
+
+static bool test_escape(void)
+{
+	bool pass = true;
+
+	printf("test_escape:\n");
+
+	pass &= check_escape("plain", "plain");
+	pass &= check_escape("", "");
+	pass &= check_escape("a\033[31mb", "a\\x1b[31mb");
+	pass &= check_escape("tab\there", "tab\\x09here");
+	pass &= check_escape("del\x7f", "del\\x7f");
+	pass &= check_escape("\xc3\xa4", "\xc3\xa4");
+
+	return pass;
+}
+
+static bool check_ret(const char *name, long got, long want)
+{
+	if (got == want) {
+		printf(" - %s [PASS]\n", name);
+		return true;
+	}
+
+	printf(" - %s: got %ld, want %ld [FAIL]\n", name, got, want);
+	return false;
+}
+
+static bool test_strscpy(void)
+{
+	char buf[4] = "xyz";
+	bool pass = true;
+
+	printf("test_strscpy:\n");
+
+	pass &= check_ret("fits", shr_strscpy(buf, "ab", sizeof(buf)), 2);
+	pass &= check_str("fits, copied", buf, "ab");
+	pass &= check_ret("fits exactly",
+			  shr_strscpy(buf, "abc", sizeof(buf)), 3);
+	pass &= check_str("fits exactly, copied", buf, "abc");
+	pass &= check_ret("too long", shr_strscpy(buf, "abcd", sizeof(buf)),
+			  -E2BIG);
+	pass &= check_str("too long, cut off", buf, "abc");
+	pass &= check_ret("empty", shr_strscpy(buf, "", sizeof(buf)), 0);
+	pass &= check_str("empty, copied", buf, "");
+	pass &= check_ret("no room", shr_strscpy(buf, "a", 0), -E2BIG);
+
+	return pass;
+}
+
+static bool test_strscat(void)
+{
+	char buf[6] = "ab";
+	bool pass = true;
+
+	printf("test_strscat:\n");
+
+	pass &= check_ret("fits", shr_strscat(buf, "cd", sizeof(buf)), 4);
+	pass &= check_str("fits, appended", buf, "abcd");
+	pass &= check_ret("too long", shr_strscat(buf, "efg", sizeof(buf)),
+			  -E2BIG);
+	pass &= check_str("too long, cut off", buf, "abcde");
+	pass &= check_ret("full", shr_strscat(buf, "x", sizeof(buf)), -E2BIG);
+	pass &= check_str("full, unchanged", buf, "abcde");
+
+	return pass;
+}
+
+static bool test_snprintf_append(void)
+{
+	char buf[8];
+	size_t len = 0;
+	bool pass = true;
+
+	printf("test_snprintf_append:\n");
+
+	buf[0] = '\0';
+	pass &= check_ret("first",
+			  shr_snprintf_append(buf, sizeof(buf), &len, "%d", 12),
+			  0);
+	pass &= check_ret("second",
+			  shr_snprintf_append(buf, sizeof(buf), &len, "-%s",
+					      "ab"),
+			  0);
+	pass &= check_str("appended", buf, "12-ab");
+	pass &= check_ret("length", len, 5);
+	pass &= check_ret("cut off",
+			  shr_snprintf_append(buf, sizeof(buf), &len, "%s",
+					      "xyz"),
+			  -E2BIG);
+	pass &= check_str("cut off, terminated", buf, "12-abxy");
+	pass &= check_ret("length at the end", len, 7);
+	pass &= check_ret("full",
+			  shr_snprintf_append(buf, sizeof(buf), &len, "z"),
+			  -E2BIG);
+	pass &= check_str("full, unchanged", buf, "12-abxy");
+
+	return pass;
+}
+
 int main(void)
 {
 	bool pass = true;
@@ -271,6 +382,10 @@ int main(void)
 	pass &= test_sanitize_name();
 	pass &= test_kv_strip();
 	pass &= test_kv_keymatch();
+	pass &= test_escape();
+	pass &= test_strscpy();
+	pass &= test_strscat();
+	pass &= test_snprintf_append();
 
 	fflush(stdout);
 	exit(pass ? EXIT_SUCCESS : EXIT_FAILURE);

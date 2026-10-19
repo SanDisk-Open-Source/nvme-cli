@@ -419,7 +419,7 @@ static int vendor_log(int argc, char **argv, struct command *acmd, struct plugin
 	struct config {
 		__u32 namespace_id;
 		const char *output_file;
-		int log;
+		__u32 log;
 	};
 
 	struct config cfg = {
@@ -428,16 +428,17 @@ static int vendor_log(int argc, char **argv, struct command *acmd, struct plugin
 		.log = 0xca
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace),
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace,
+			 nvme_nsid_values),
 		OPT_FILE("output-file",  'O', &cfg.output_file,  output_file),
-		OPT_UINT("log",          'l', &cfg.log,          log));
+		OPT_UINT("log",          'l', &cfg.log,          log),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
-	if (err) {
-		nvme_show_error("%s: failed to parse arguments", __func__);
-		return -EINVAL;
-	}
+	if (err)
+		return err;
 
 	if ((cfg.log != 0xC0) && (cfg.log != 0xCA)) {
 		nvme_show_error("%s: invalid log page 0x%x - should be 0xC0 or 0xCA", __func__, cfg.log);
@@ -475,15 +476,15 @@ static int internal_log(int argc, char **argv, struct command *acmd, struct plug
 		.prev_log = false
 	};
 
-	NVME_ARGS(opts,
+	OPT_ARGS(opts) = {
 		OPT_FILE("output-file", 'O', &cfg.output_file, output_file),
-		OPT_FLAG("prev-log", 'p', &cfg.prev_log, prev_log));
+		OPT_FLAG("prev-log",    'p', &cfg.prev_log,    prev_log),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
-	if (err) {
-		nvme_show_error("%s: failed to parse arguments", __func__);
-		return -EINVAL;
-	}
+	if (err)
+		return err;
 
 	if (cfg.prev_log)
 		printf("Getting previous log\n");
@@ -514,13 +515,13 @@ static int clear_correctable_errors(int argc, char **argv, struct command *acmd,
 	__u64 result;
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
-	if (err) {
-		nvme_show_error("%s: failed to parse arguments", __func__);
-		return -EINVAL;
-	}
+	if (err)
+		return err;
 
 	/* Check device supported */
 	err = nvme_get_sct_status(hdl, MASK_0 | MASK_1);

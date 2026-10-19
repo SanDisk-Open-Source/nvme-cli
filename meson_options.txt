@@ -54,6 +54,12 @@ option(
   description : 'nvme-keysd daemon, provisions TLS PSKs into the kernel keyring (technology preview; requires fabrics, OpenSSL, libkeyutils and libsystemd >=257)'
 )
 option(
+  'kmip',
+  type : 'feature',
+  value: 'auto',
+  description : 'KMIP key source in nvme-keysd: the nvme-keysd-kmip helper (requires nvme-keysd)'
+)
+option(
   'nvmf-autoconnect',
   type : 'feature',
   value: 'auto',
@@ -124,6 +130,12 @@ option(
   type : 'boolean',
   value : false,
   description: 'Run tests against real hardware'
+)
+option(
+  'fuzzing',
+  type : 'boolean',
+  value : false,
+  description: 'Build the fuzz targets for libFuzzer instead of the fuzz tests (needs clang)'
 )
 option(
   'e2e-controller',

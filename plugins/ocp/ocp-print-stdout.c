@@ -3,6 +3,7 @@
 
 #include <ccan/array_size/array_size.h>
 #include <ccan/endian/endian.h>
+#include <shared/hex-util.h>
 #include <shared/int-util.h>
 #include <shared/time-util.h>
 #include <shared/uint128-util.h>
@@ -39,29 +40,22 @@ static void print_hwcomp_desc(struct hwcomp_desc_entry *e, bool list, int num)
 
 static void stdout_hwcomp_log(struct hwcomp_log *log, __u32 id, bool list)
 {
-	size_t date_lot_code_offset = sizeof(struct hwcomp_desc);
+	struct hwcomp_desc_entry e;
+	__u64 offset;
 	int num = 1;
-	__u64 desc_remain = log->desc_len;
-	struct hwcomp_desc_entry e = { log->desc };
 
 	printf("Log Identifier: 0x%02xh\n", OCP_LID_HWCOMP);
 	printf("Log Page Version: 0x%x\n", le16_to_cpu(log->ver));
 	print_array("Reserved2", log->rsvd2, ARRAY_SIZE(log->rsvd2));
 	print_array("Log page GUID", log->guid, ARRAY_SIZE(log->guid));
-	printf("Hardware Component Log Size: 0x%"PRIx64"\n", (uint64_t)desc_remain);
+	printf("Hardware Component Log Size: 0x%"PRIx64"\n",
+	       (uint64_t)log->desc_len);
 	print_array("Reserved48", log->rsvd48, ARRAY_SIZE(log->rsvd48));
 	printf("Component Descriptions\n");
-	while (desc_remain > 0) {
-		e.date_lot_size = le64_to_cpu(e.desc->date_lot_size) * sizeof(__le32);
-		e.date_lot_code = e.date_lot_size ? (__u8 *)e.desc + date_lot_code_offset : NULL;
-		e.add_info_size = le64_to_cpu(e.desc->add_info_size) * sizeof(__le32);
-		e.add_info = e.add_info_size ? e.date_lot_code ? e.date_lot_code + e.date_lot_size :
-		    (__u8 *)e.desc + date_lot_code_offset : NULL;
+	for (offset = 0; hwcomp_desc_entry(log, offset, &e);
+	     offset += e.desc_size) {
 		if (!id || id == le32_to_cpu(e.desc->id))
 			print_hwcomp_desc(&e, list, num++);
-		e.desc_size = date_lot_code_offset + e.date_lot_size + e.add_info_size;
-		e.desc = (struct hwcomp_desc *)((__u8 *)e.desc + e.desc_size);
-		desc_remain -= e.desc_size;
 	}
 }
 
@@ -325,10 +319,9 @@ static void stdout_c3_log(struct libnvme_transport_handle *hdl, struct ssd_laten
 	printf("  Log Page Version                   %d\n", log_page_version);
 
 	char guid[(GUID_LEN * 2) + 1];
-	char *ptr = &guid[0];
 
-	for (i = GUID_LEN - 1; i >= 0; i--)
-		ptr += sprintf(ptr, "%02X", log_data->log_page_guid[i]);
+	shr_bin_to_hex(guid, sizeof(guid), log_data->log_page_guid, GUID_LEN,
+		       SHR_HEX_UPPER | SHR_HEX_REVERSE);
 
 	printf("  Log Page GUID                      %s\n", guid);
 	printf("\n");
@@ -846,16 +839,13 @@ static void stdout_persistent_event_log(void *pevent_log_info, __u8 action,
 	printf("\n");
 	printf("\nPersistent Event Entries:\n");
 	for (int i = 0; i < le32_to_cpu(pevent_log_head->tnev); i++) {
-		if (offset + sizeof(*pevent_entry_head) > size)
+		pevent_entry_head = nvme_pel_event(pevent_log_info, size,
+						   offset);
+		if (!pevent_entry_head)
 			break;
 
-		pevent_entry_head = pevent_log_info + offset;
 		vsil = le16_to_cpu(pevent_entry_head->vsil);
 		el = le16_to_cpu(pevent_entry_head->el);
-
-		if (vsil > el ||
-		    offset + pevent_entry_head->ehl + 3 + el > size)
-			break;
 
 		nvme_show_pel_event_header(i, pevent_entry_head, human);
 

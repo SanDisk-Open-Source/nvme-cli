@@ -170,7 +170,6 @@ static int fw_download(int argc, char **argv, struct command *acmd, struct plugi
 	void *fw_buf;
 	struct nvme_id_ctrl ctrl = { 0 };
 	struct libnvme_passthru_cmd cmd;
-	nvme_print_flags_t flags;
 
 	struct config {
 		char	*fw;
@@ -192,24 +191,20 @@ static int fw_download(int argc, char **argv, struct command *acmd, struct plugi
 		.stream     = false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FILE("fw",         'f', &cfg.fw,         fw),
-		  OPT_FLAG("ish",        'I', &cfg.ish,        ish),
-		  OPT_UINT("xfer",       'x', &cfg.xfer,       xfer),
-		  OPT_UINT("offset",     'O', &cfg.offset,     offset),
-		  OPT_FLAG("progress",   'p', &cfg.progress,   progress),
-		  OPT_FLAG("ignore-ovr", 'i', &cfg.ignore_ovr, ignore_ovr),
-		  OPT_FLAG("stream",       0, &cfg.stream,      stream));
+	OPT_ARGS(opts) = {
+		OPT_FILE("fw",         'f', &cfg.fw,         fw),
+		OPT_FLAG("ish",        'I', &cfg.ish,        ish),
+		OPT_UINT("xfer",       'x', &cfg.xfer,       xfer),
+		OPT_UINT("offset",     'O', &cfg.offset,     offset),
+		OPT_FLAG("progress",   'p', &cfg.progress,   progress),
+		OPT_FLAG("ignore-ovr", 'i', &cfg.ignore_ovr, ignore_ovr),
+		OPT_FLAG("stream",     0,   &cfg.stream,     stream),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
 
 	fw_fd = shr_open_rawdata(cfg.fw, O_RDONLY);
 	cfg.offset <<= 2;
@@ -399,7 +394,6 @@ static int fw_commit(int argc, char **argv, struct command *acmd, struct plugin 
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	struct libnvme_passthru_cmd cmd;
 	int err;
-	nvme_print_flags_t flags;
 	bool mud_supported;
 
 	struct config {
@@ -430,21 +424,17 @@ static int fw_commit(int argc, char **argv, struct command *acmd, struct plugin 
 		VAL_END()
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("ish",    'I', &cfg.ish,    ish),
-		  OPT_BYTE("slot",   's', &cfg.slot,   slot),
-		  OPT_BYTE("action", 'a', &cfg.action, action, ca),
-		  OPT_BYTE("bpid",   'b', &cfg.bpid,   bpid));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("ish",    'I', &cfg.ish,    ish),
+		OPT_BYTE("slot",   's', &cfg.slot,   slot),
+		OPT_BYTE("action", 'a', &cfg.action, action, ca),
+		OPT_BYTE("bpid",   'b', &cfg.bpid,   bpid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
 
 	if (cfg.slot > 7) {
 		nvme_show_error("invalid slot:%d", cfg.slot);

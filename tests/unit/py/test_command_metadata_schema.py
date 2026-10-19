@@ -95,6 +95,11 @@ class TestCommandMetadataSchema(unittest.TestCase):
             lambda d: d["commands"][0]["options"][0].pop("long"),
             lambda d: d["commands"][0]["options"][0].update(argument="bogus"),
             lambda d: d["commands"][0]["options"][0].update(surprise=1),
+            lambda d: d["commands"][0].pop("device"),
+            lambda d: d["commands"][0].update(device="bogus"),
+            lambda d: d["commands"][0]["options"][0].update(type="bogus"),
+            lambda d: d["commands"][0]["options"][0].update(
+                range={"min": 0}),
         ]
         for mutate in cases:
             bad = copy.deepcopy(self.data)
@@ -138,8 +143,15 @@ class TestCommandMetadataSchema(unittest.TestCase):
         self.assertEqual(runs[0], runs[1])
 
     def test_schema_version(self):
-        """schema_version is the expected 1; a change must be conscious."""
-        self.assertEqual(self.data["schema_version"], 1)
+        """schema_version is the expected 2; a change must be conscious."""
+        self.assertEqual(self.data["schema_version"], 2)
+
+    def test_device_operand(self):
+        """Each command reports whether it takes a device."""
+        device = {c["name"]: c["device"] for c in self.data["commands"]}
+        self.assertEqual(device["list"], "none")
+        self.assertEqual(device["list-subsys"], "optional")
+        self.assertEqual(device["format"], "required")
 
     def test_global_output_format_option(self):
         """The shared output-format option carries its constrained value set."""
@@ -148,6 +160,38 @@ class TestCommandMetadataSchema(unittest.TestCase):
         self.assertTrue(opt.get("global"))
         self.assertEqual(opt["argument"], "required")
         self.assertIn("json", opt["values"])
+
+    def test_deprecated(self):
+        """Deprecated commands name their replacement, deprecated options
+        theirs, and renamed options their old name."""
+        cmds = {c["name"]: c for c in self.data["commands"]}
+        self.assertTrue(cmds["smart-log"].get("deprecated"))
+        self.assertEqual(cmds["smart-log"].get("replacement"), "log smart")
+        self.assertNotIn("deprecated", cmds["list"])
+        opt = next(o for o in cmds["list"]["options"]
+                   if o["long"] == "human-readable")
+        self.assertEqual(opt.get("deprecated"), "--verbose/-v")
+        self.assertTrue(opt.get("hidden"))
+        if "discover" in cmds:
+            opt = next(o for o in cmds["discover"]["options"]
+                       if o["long"] == "no-reuse")
+            self.assertEqual(opt.get("old_name"), "force")
+
+    def test_value_types(self):
+        """Options carry the kind of value they take and a range if
+        they take fewer numbers than their type holds."""
+        cmds = {c["name"]: c for c in self.data["commands"]}
+        opts = {o["long"]: o for o in cmds["get-feature"]["options"]}
+        self.assertEqual(opts["sel"]["type"], "u8")
+        self.assertEqual(opts["sel"]["range"], {"min": 0, "max": 3})
+        self.assertIn("saved", opts["sel"]["values"])
+        self.assertEqual(opts["namespace-id"]["type"], "u32")
+        self.assertNotIn("range", opts["namespace-id"])
+        self.assertEqual(opts["output-format-version"]["range"],
+                         {"min": 1, "max": 2})
+        self.assertEqual(opts["verbose"]["type"], "count")
+        opts = {o["long"]: o for o in cmds["fw-download"]["options"]}
+        self.assertEqual(opts["fw"]["type"], "file")
 
 
 if __name__ == "__main__":

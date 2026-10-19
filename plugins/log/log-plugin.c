@@ -12,7 +12,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <inttypes.h>
 #include <libgen.h>
 #include <locale.h>
@@ -84,17 +83,15 @@ static int get_supported_log_pages(int argc, char **argv, struct command *acmd,
 	nvme_print_flags_t flags;
 	int err = -1;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -140,19 +137,18 @@ static int get_smart_log(int argc, char **argv, struct command *acmd, struct plu
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace),
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw_output));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace,
+			 nvme_nsid_values),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw_output),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -201,19 +197,17 @@ static int get_ana_log(int argc, char **argv, struct command *acmd,
 		.groups = false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("groups", 'g', &cfg.groups, groups));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("groups", 'g', &cfg.groups, groups),
+		OPT_END()
+	};
 
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	ctrl = libnvme_alloc(sizeof(*ctrl));
 	if (!ctrl)
@@ -466,7 +460,6 @@ static int get_telemetry_log(int argc, char **argv, struct command *acmd,
 	struct libnvme_passthru_cmd cmd;
 	int err = 0;
 	size_t total_size = 0;
-	nvme_print_flags_t flags;
 	bool da4_support = false,
 	host_behavior_changed = false;
 
@@ -474,7 +467,7 @@ static int get_telemetry_log(int argc, char **argv, struct command *acmd,
 		char	*file_name;
 		__u32	host_gen;
 		bool	ctrl_init;
-		int	data_area;
+		__u32	data_area;
 		bool	rae;
 		__u8	mcda;
 		bool	force;
@@ -485,27 +478,23 @@ static int get_telemetry_log(int argc, char **argv, struct command *acmd,
 		.ctrl_init	= false,
 		.data_area	= 3,
 		.rae		= false,
-		.mcda		= 0xff,
+		.mcda		= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FILE("output-file",     'O', &cfg.file_name, fname),
-		  OPT_UINT("host-generate",   'g', &cfg.host_gen,  hgen),
-		  OPT_FLAG("controller-init", 'c', &cfg.ctrl_init, cgen),
-		  OPT_UINT("data-area",       'd', &cfg.data_area, dgen),
-		  OPT_FLAG("rae",             'r', &cfg.rae,       rae),
-		  OPT_BYTE("mcda",            'm', &cfg.mcda,      mcda),
-		  OPT_FLAG("force",             0, &cfg.force,     force));
+	OPT_ARGS(opts) = {
+		OPT_FILE("output-file",     'O', &cfg.file_name, fname),
+		OPT_UINT("host-generate",   'g', &cfg.host_gen,  hgen),
+		OPT_FLAG("controller-init", 'c', &cfg.ctrl_init, cgen),
+		OPT_UINT("data-area",       'd', &cfg.data_area, dgen),
+		OPT_FLAG("rae",             'r', &cfg.rae,       rae),
+		OPT_BYTE("mcda",            'm', &cfg.mcda,      mcda),
+		OPT_FLAG("force",           0,   &cfg.force,     force),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
 
 	if (!cfg.file_name) {
 		nvme_show_error("Please provide an output file!");
@@ -514,7 +503,7 @@ static int get_telemetry_log(int argc, char **argv, struct command *acmd,
 
 	cfg.host_gen = !!cfg.host_gen;
 
-	if (cfg.mcda != 0xff) {
+	if (argconfig_given(opts, &cfg.mcda)) {
 		if (cfg.ctrl_init || !cfg.host_gen) {
 			nvme_show_error("mcda allowed for Host-init Creation!");
 			return -EINVAL;
@@ -620,19 +609,17 @@ static int get_endurance_log(int argc, char **argv, struct command *acmd, struct
 		.group_id	= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_SHRT("group-id",     'g', &cfg.group_id,      group_id));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("group-id", 'g', &cfg.group_id, group_id),
+		OPT_END()
+	};
 
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	endurance_log = libnvme_alloc(sizeof(*endurance_log));
 	if (!endurance_log)
@@ -699,20 +686,18 @@ static int get_effects_log(int argc, char **argv, struct command *acmd, struct p
 		.csi		= -1,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("raw-binary",     'b', &cfg.raw_binary,     raw_log),
-		  OPT_INT("csi",             'c', &cfg.csi,            csi));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_log),
+		OPT_INT("csi",         'c', &cfg.csi,        csi),
+		OPT_END()
+	};
 
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -800,27 +785,26 @@ static int get_error_log(int argc, char **argv, struct command *acmd, struct plu
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("log-entries",  'e', &cfg.log_entries, log_entries),
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,  raw),
-		  OPT_FLAG("valid-entry",  'V', &cfg.flt.valid,   valid_entry),
-		  OPT_SHRT("sqid",         'S', &cfg.flt.sqid,    sqid),
-		  OPT_SHRT("status",       's', &cfg.flt.status,  status),
-		  OPT_SUFFIX("lba",        'l', &cfg.flt.lba,     lba),
-		  OPT_UINT("namespace-id", 'n', &cfg.flt.nsid,    nsid),
-		  OPT_BYTE("trtype",       't', &cfg.flt.trtype,  trtype),
-		  OPT_BYTE("csi",          'c', &cfg.flt.csi,     csi),
-		  OPT_BYTE("opcode",       'O', &cfg.flt.opcode,  opcode));
+	OPT_ARGS(opts) = {
+		OPT_UINT("log-entries",  'e', &cfg.log_entries, log_entries),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,  raw),
+		OPT_FLAG("valid-entry",  'V', &cfg.flt.valid,   valid_entry),
+		OPT_SHRT("sqid",         'S', &cfg.flt.sqid,    sqid),
+		OPT_SHRT("status",       's', &cfg.flt.status,  status),
+		OPT_SUFFIX("lba",        'l', &cfg.flt.lba,     lba),
+		OPT_UINT("namespace-id", 'n', &cfg.flt.nsid, nsid,
+			 nvme_nsid_values),
+		OPT_BYTE("trtype",       't', &cfg.flt.trtype,  trtype),
+		OPT_BYTE("csi",          'c', &cfg.flt.csi,     csi),
+		OPT_BYTE("opcode",       'O', &cfg.flt.opcode,  opcode),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -879,18 +863,16 @@ static int get_fw_log(int argc, char **argv, struct command *acmd, struct plugin
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,    raw_use));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_use),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -931,8 +913,10 @@ static int get_changed_ns_list_log(int argc, char **argv, bool alloc)
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,    raw_output));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_output),
+		OPT_END()
+	};
 
 	if (asprintf(&desc, "Retrieve Changed %s Namespaces log for the given device %s",
 		     alloc ? "Allocated" : "Attached",
@@ -943,11 +927,7 @@ static int get_changed_ns_list_log(int argc, char **argv, bool alloc)
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -1014,19 +994,17 @@ static int get_pred_lat_per_nvmset_log(int argc, char **argv,
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_SHRT("nvmset-id",	   'i', &cfg.nvmset_id,     nvmset_id),
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,    raw_use));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("nvmset-id",  'i', &cfg.nvmset_id,  nvmset_id),
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_use),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -1066,7 +1044,7 @@ static int get_pred_lat_event_agg_log(int argc, char **argv,
 	int err;
 
 	struct config {
-		__u64	log_entries;
+		__u32	log_entries;
 		bool	rae;
 		bool	raw_binary;
 	};
@@ -1077,20 +1055,18 @@ static int get_pred_lat_event_agg_log(int argc, char **argv,
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("log-entries",  'e', &cfg.log_entries,   log_entries),
-		  OPT_FLAG("rae",          'r', &cfg.rae,           rae),
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,    raw_use));
+	OPT_ARGS(opts) = {
+		OPT_UINT("log-entries", 'e', &cfg.log_entries, log_entries),
+		OPT_FLAG("rae",         'r', &cfg.rae,         rae),
+		OPT_FLAG("raw-binary",  'b', &cfg.raw_binary,  raw_use),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -1162,20 +1138,18 @@ static int get_persistent_event_log(int argc, char **argv,
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_BYTE("action",       'a', &cfg.action,        action),
-		  OPT_UINT("log_len",	 'l', &cfg.log_len,	  log_len),
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,    raw_use));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("action",     'a', &cfg.action,     action),
+		OPT_UINT("log_len",    'l', &cfg.log_len,    log_len),
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_use),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -1197,7 +1171,15 @@ static int get_persistent_event_log(int argc, char **argv,
 	}
 
 	if (!cfg.log_len && cfg.action != NVME_PEVENT_LOG_EST_CTX_AND_READ) {
-		cfg.log_len = le64_to_cpu(pevent->tll);
+		__u64 tll = le64_to_cpu(pevent->tll);
+
+		/* the log is read with a 32 bit length */
+		if (tll > UINT32_MAX) {
+			nvme_show_error("persistent event log of %"PRIu64
+					" bytes is too large", (uint64_t)tll);
+			return -EINVAL;
+		}
+		cfg.log_len = tll;
 	} else if (!cfg.log_len && cfg.action == NVME_PEVENT_LOG_EST_CTX_AND_READ) {
 		nvme_show_error("Establishing Persistent Event Log Context");
 		return 0;
@@ -1263,7 +1245,7 @@ static int get_endurance_event_agg_log(int argc, char **argv,
 	int err;
 
 	struct config {
-		__u64	log_entries;
+		__u32	log_entries;
 		bool	rae;
 		bool	raw_binary;
 	};
@@ -1274,20 +1256,18 @@ static int get_endurance_event_agg_log(int argc, char **argv,
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("log-entries",  'e', &cfg.log_entries,   log_entries),
-		  OPT_FLAG("rae",          'r', &cfg.rae,           rae),
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,    raw_use));
+	OPT_ARGS(opts) = {
+		OPT_UINT("log-entries", 'e', &cfg.log_entries, log_entries),
+		OPT_FLAG("rae",         'r', &cfg.rae,         rae),
+		OPT_FLAG("raw-binary",  'b', &cfg.raw_binary,  raw_use),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -1342,6 +1322,7 @@ static int get_lba_status_log(int argc, char **argv,
 	__cleanup_libnvme_free void *lba_status = NULL;
 	struct libnvme_passthru_cmd cmd;
 	nvme_print_flags_t flags;
+	__le32 lslplen_le;
 	__u32 lslplen;
 	int err;
 
@@ -1353,25 +1334,24 @@ static int get_lba_status_log(int argc, char **argv,
 		.rae		= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("rae",          'r', &cfg.rae,           rae));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("rae", 'r', &cfg.rae, rae),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
-	nvme_init_get_log_lba_status(&cmd, 0, &lslplen, sizeof(__u32));
-	err = libnvme_get_log(hdl, &cmd, false, sizeof(__u32));
+	nvme_init_get_log_lba_status(&cmd, 0, &lslplen_le, sizeof(lslplen_le));
+	err = libnvme_get_log(hdl, &cmd, false, sizeof(lslplen_le));
 	if (err) {
 		nvme_show_err(err, "lba status log page");
 		return err;
 	}
+	lslplen = le32_to_cpu(lslplen_le);
 
 	lba_status = libnvme_alloc(lslplen);
 	if (!lba_status)
@@ -1405,17 +1385,15 @@ static int get_resv_notif_log(int argc, char **argv,
 	nvme_print_flags_t flags;
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	resv = libnvme_alloc(sizeof(*resv));
 	if (!resv)
@@ -1462,19 +1440,17 @@ static int get_boot_part_log(int argc, char **argv, struct command *acmd, struct
 		.file_name	= NULL,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_BYTE("lsp",          's', &cfg.lsp,           lsp),
-		  OPT_FILE("output-file",  'f', &cfg.file_name,     fname));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("lsp",         's', &cfg.lsp,       lsp),
+		OPT_FILE("output-file", 'f', &cfg.file_name, fname),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (!cfg.file_name) {
 		nvme_show_error("Please provide an output file!");
@@ -1555,19 +1531,17 @@ static int get_phy_rx_eom_log(int argc, char **argv, struct command *acmd,
 		.controller	= NVME_LOG_LSI_NONE,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_BYTE("lsp",        's', &cfg.lsp,        lsp),
-		  OPT_SHRT("controller", 'c', &cfg.controller, controller));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("lsp",        's', &cfg.lsp,        lsp),
+		OPT_SHRT("controller", 'c', &cfg.controller, controller),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.lsp > 127) {
 		nvme_show_error("invalid lsp param: %u", cfg.lsp);
@@ -1621,15 +1595,74 @@ static int get_phy_rx_eom_log(int argc, char **argv, struct command *acmd,
 	return err;
 }
 
+#define LOG_NO_LEN_MAX_LEN	(4 * 1024 * 1024)
+
+/*
+ * Read a log page that has no length field. @log_len returns the length
+ * of the log in a buffer of @len bytes, or a larger value if the buffer is
+ * too short. Read the log again with a larger buffer until it holds the
+ * whole log, up to LOG_NO_LEN_MAX_LEN bytes. The data beyond the end of
+ * the log page is undefined and is not used.
+ */
+static int get_log_no_len(struct libnvme_transport_handle *hdl,
+		const struct libnvme_passthru_cmd *init, void **log,
+		size_t *len, size_t (*log_len)(void *log, size_t len))
+{
+	struct libnvme_passthru_cmd cmd;
+	size_t need;
+	int err;
+
+	*len = NVME_LOG_PAGE_PDU_SIZE;
+	for (;;) {
+		void *p = libnvme_realloc(*log, *len);
+
+		if (!p)
+			return -ENOMEM;
+		*log = p;
+
+		cmd = *init;
+		cmd.addr = (__u64)(uintptr_t)p;
+		cmd.data_len = *len;
+		err = libnvme_get_log_dynamic_chunk(hdl, &cmd, false, *len);
+		if (err)
+			return err;
+
+		need = log_len(p, *len);
+		if (need <= *len)
+			return 0;
+		if (*len == LOG_NO_LEN_MAX_LEN) {
+			nvme_show_error("log longer than %d bytes, truncated",
+					LOG_NO_LEN_MAX_LEN);
+			return 0;
+		}
+		need = (need + NVME_LOG_PAGE_PDU_SIZE - 1) &
+		       ~(size_t)(NVME_LOG_PAGE_PDU_SIZE - 1);
+		*len = min_t(size_t, max(need, 2 * *len), LOG_NO_LEN_MAX_LEN);
+	}
+}
+
+static size_t media_unit_stat_log_len(void *p, size_t len)
+{
+	struct nvme_media_unit_stat_desc desc;
+	struct mus_desc_iter it;
+
+	mus_desc_iter_init(&it, p, len);
+	while (mus_desc_iter_next(&it, &desc))
+		;
+
+	return it.need ? it.need : len;
+}
+
 static int get_media_unit_stat_log(int argc, char **argv, struct command *acmd,
 				   struct plugin *plugin)
 {
 	const char *desc = "Retrieve the configuration and wear of media units and print it";
 
-	__cleanup_libnvme_free struct nvme_media_unit_stat_log *mus = NULL;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
+	__cleanup_libnvme_free void *mus = NULL;
 	struct libnvme_passthru_cmd cmd;
+	size_t len;
 	nvme_print_flags_t flags;
 	int err = -1;
 
@@ -1643,40 +1676,32 @@ static int get_media_unit_stat_log(int argc, char **argv, struct command *acmd,
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("domain-id",     'd', &cfg.domainid, domainid),
-		  OPT_FLAG("raw-binary",    'b', &cfg.raw_binary, raw_use));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("domain-id",  'd', &cfg.domainid,   domainid),
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_use),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
 
-	mus = libnvme_alloc(sizeof(*mus));
-	if (!mus)
-		return -ENOMEM;
-
-	nvme_init_get_log_media_unit_stat(&cmd, cfg.domainid, mus);
-	err = libnvme_get_log(hdl, &cmd, false, sizeof(*mus));
+	nvme_init_get_log_media_unit_stat(&cmd, cfg.domainid, NULL);
+	err = get_log_no_len(hdl, &cmd, &mus, &len, media_unit_stat_log_len);
 	if (err) {
 		nvme_show_err(err, "media unit status log");
 		return err;
 	}
 
-	nvme_show_media_unit_stat_log(mus, flags);
+	nvme_show_media_unit_stat_log(mus, len, flags);
 
 	return err;
 }
-
-#define SUPP_CAP_CONFIG_LOG_MAX_LEN	(256 * 1024)
 
 /*
  * The functions below return the offset after a descriptor that starts
@@ -1731,11 +1756,10 @@ static size_t cap_config_egcd_end(const unsigned char *buf, size_t off,
 	return off;
 }
 
-/* The log page has no length field. */
-static size_t supp_cap_config_log_len(
-		struct nvme_supported_cap_config_list_log *log, size_t len)
+static size_t supp_cap_config_log_len(void *p, size_t len)
 {
-	const unsigned char *buf = (const unsigned char *)log;
+	struct nvme_supported_cap_config_list_log *log = p;
+	const unsigned char *buf = p;
 	struct nvme_capacity_config_desc desc;
 	size_t off = sizeof(*log);
 
@@ -1758,10 +1782,10 @@ static int get_supp_cap_config_log(int argc, char **argv, struct command *acmd,
 {
 	const char *desc = "Retrieve the list of Supported Capacity Configuration Descriptors";
 
-	__cleanup_libnvme_free struct nvme_supported_cap_config_list_log *cap_log = NULL;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
-	size_t len = NVME_LOG_PAGE_PDU_SIZE, need;
+	__cleanup_libnvme_free void *cap_log = NULL;
+	size_t len;
 	struct libnvme_passthru_cmd cmd;
 	nvme_print_flags_t flags;
 	int err = -1;
@@ -1776,57 +1800,27 @@ static int get_supp_cap_config_log(int argc, char **argv, struct command *acmd,
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("domain-id",     'd', &cfg.domainid,       domainid),
-		  OPT_FLAG("raw-binary",    'b', &cfg.raw_binary,     raw_use));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("domain-id",  'd', &cfg.domainid,   domainid),
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_use),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
 
-	/*
-	 * Read the log again with a larger buffer until it holds all the
-	 * descriptors. The data beyond the end of the log page is undefined
-	 * and is not used.
-	 */
-	for (;;) {
-		void *p = libnvme_realloc(cap_log, len);
-
-		if (!p)
-			return -ENOMEM;
-		cap_log = p;
-
-		nvme_init_get_log_support_cap_config_list(&cmd, cfg.domainid,
-							  cap_log);
-		cmd.data_len = len;
-		err = libnvme_get_log(hdl, &cmd, false, NVME_LOG_PAGE_PDU_SIZE);
-		if (err) {
-			nvme_show_err(err,
-				      "supported capacity configuration list log");
-			return err;
-		}
-
-		need = supp_cap_config_log_len(cap_log, len);
-		if (need <= len)
-			break;
-		if (len == SUPP_CAP_CONFIG_LOG_MAX_LEN) {
-			nvme_show_error("log longer than %d bytes, truncated",
-					SUPP_CAP_CONFIG_LOG_MAX_LEN);
-			break;
-		}
-		need = (need + NVME_LOG_PAGE_PDU_SIZE - 1) &
-		       ~(size_t)(NVME_LOG_PAGE_PDU_SIZE - 1);
-		len = min_t(size_t, max(need, 2 * len),
-			    SUPP_CAP_CONFIG_LOG_MAX_LEN);
+	nvme_init_get_log_support_cap_config_list(&cmd, cfg.domainid, NULL);
+	err = get_log_no_len(hdl, &cmd, &cap_log, &len,
+			     supp_cap_config_log_len);
+	if (err) {
+		nvme_show_err(err, "supported capacity configuration list log");
+		return err;
 	}
 
 	nvme_show_supported_cap_config_log(cap_log, len, flags);
@@ -1855,19 +1849,17 @@ static int sanitize_log(int argc, char **argv, struct command *acmd, struct plug
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("rae",            'r', &cfg.rae,            rae),
-		  OPT_FLAG("raw-binary",     'b', &cfg.raw_binary,     raw_log));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("rae",        'r', &cfg.rae,        rae),
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_log),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -1904,17 +1896,15 @@ static int get_fid_support_effects_log(int argc, char **argv, struct command *ac
 	nvme_print_flags_t flags;
 	int err = -1;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -1949,17 +1939,15 @@ static int get_mi_cmd_support_effects_log(int argc, char **argv, struct command 
 	nvme_print_flags_t flags;
 	int err = -1;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -2002,18 +1990,16 @@ static int self_test_log(int argc, char **argv, struct command *acmd, struct plu
 		.dst_entries	= NVME_LOG_ST_MAX_RESULTS,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_BYTE("dst-entries",  'e', &cfg.dst_entries,   dst_entries));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("dst-entries", 'e', &cfg.dst_entries, dst_entries),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -2046,17 +2032,15 @@ static int get_mgmt_addr_list_log(int argc, char **argv, struct command *acmd, s
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	struct libnvme_passthru_cmd cmd;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	ma_log = libnvme_alloc(sizeof(*ma_log));
 	if (!ma_log)
@@ -2094,18 +2078,16 @@ static int get_rotational_media_info_log(int argc, char **argv, struct command *
 		.endgid = 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("endg-id", 'e', &cfg.endgid, endgid));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("endg-id", 'e', &cfg.endgid, endgid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	info = libnvme_alloc(sizeof(*info));
 	if (!info)
@@ -2124,13 +2106,16 @@ static int get_rotational_media_info_log(int argc, char **argv, struct command *
 }
 
 static int get_dispersed_ns_psub(struct libnvme_transport_handle *hdl, __u32 nsid,
-				 struct nvme_dispersed_ns_participating_nss_log **logp)
+				 struct nvme_dispersed_ns_participating_nss_log
+					**logp,
+				 __u64 *lenp)
 {
 	int err;
 	__u64 header_len = sizeof(**logp);
-	__u64 psub_list_len;
+	__u64 numpsub, psub_list_len;
 	struct nvme_dispersed_ns_participating_nss_log *log = libnvme_alloc(header_len);
 	struct libnvme_passthru_cmd cmd;
+	void *p;
 
 	if (!log)
 		return -ENOMEM;
@@ -2140,13 +2125,24 @@ static int get_dispersed_ns_psub(struct libnvme_transport_handle *hdl, __u32 nsi
 	if (err)
 		goto err_free;
 
-	psub_list_len = le64_to_cpu(log->numpsub) * NVME_NQN_LENGTH;
+	*lenp = header_len;
+	numpsub = le64_to_cpu(log->numpsub);
+	if (!numpsub)
+		goto out;
+	/* the command takes a 32 bit length */
+	if (numpsub > UINT32_MAX / NVME_NQN_LENGTH) {
+		err = -EINVAL;
+		goto err_free;
+	}
+	psub_list_len = numpsub * NVME_NQN_LENGTH;
 
-	log = libnvme_realloc(log, header_len + psub_list_len);
-	if (!log) {
+	p = libnvme_realloc(log, header_len + psub_list_len);
+	if (!p) {
 		err = -ENOMEM;
 		goto err_free;
 	}
+	log = p;
+	*lenp = header_len + psub_list_len;
 
 	nvme_init_get_log_dispersed_ns_participating_nss(&cmd, nsid,
 		(void *)log->participating_nss, psub_list_len);
@@ -2156,6 +2152,7 @@ static int get_dispersed_ns_psub(struct libnvme_transport_handle *hdl, __u32 nsi
 	if (err)
 		goto err_free;
 
+out:
 	*logp = log;
 	return 0;
 
@@ -2174,6 +2171,7 @@ static int get_dispersed_ns_participating_nss_log(int argc, char **argv, struct 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	__cleanup_libnvme_free struct nvme_dispersed_ns_participating_nss_log *log = NULL;
+	__u64 log_len;
 
 	struct config {
 		__u32 namespace_id;
@@ -2183,25 +2181,25 @@ static int get_dispersed_ns_participating_nss_log(int argc, char **argv, struct 
 		.namespace_id = 1,
 	};
 
-	NVME_ARGS(opts, OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id_desired));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_desired, nvme_nsid_values),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
-	err = get_dispersed_ns_psub(hdl, cfg.namespace_id, &log);
+	err = get_dispersed_ns_psub(hdl, cfg.namespace_id, &log, &log_len);
 	if (err) {
 		nvme_show_err(err, "dispersed ns participating nss log");
 		return err;
 	}
 
-	nvme_show_dispersed_ns_psub_log(log, flags);
+	nvme_show_dispersed_ns_psub_log(log, log_len, flags);
 
 	return err;
 }
@@ -2230,18 +2228,16 @@ static int get_power_measurement_log(int argc, char **argv, struct command *acmd
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_output));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw_output),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -2269,9 +2265,11 @@ static int get_power_measurement_log(int argc, char **argv, struct command *acmd
 
 	/* If the log is larger, re-read with full size */
 	if (log_size > min_log_size) {
-		log = libnvme_realloc(log, log_size);
-		if (!log)
+		void *p = libnvme_realloc(log, log_size);
+
+		if (!p)
 			return -ENOMEM;
+		log = p;
 
 		nvme_init_get_log_power_measurement(&cmd, log, log_size);
 		err = libnvme_get_log(hdl, &cmd, false, NVME_LOG_PAGE_PDU_SIZE);
@@ -2286,20 +2284,34 @@ static int get_power_measurement_log(int argc, char **argv, struct command *acmd
 	return err;
 }
 
+/*
+ * Read @len bytes of a log at @offset into the buffer @log of @size bytes,
+ * and advance @offset past them. The buffer grows as needed, at least to
+ * twice its size, so reading a log in many small parts doesn't copy it
+ * over and over.
+ */
 static int get_log_offset(struct libnvme_transport_handle *hdl,
 			  struct nvme_get_log_args *args, __u64 *offset,
-			  __u32 len, void **log)
+			  __u32 len, void **log, __u64 *size)
 {
 	struct libnvme_passthru_cmd cmd;
+	__u64 need = *offset + len;
+	void *p;
 	int err;
+
+	if (need > *size) {
+		__u64 grow = *size * 2 > need ? *size * 2 : need;
+
+		p = libnvme_realloc(*log, grow);
+		if (!p)
+			return -ENOMEM;
+		*log = p;
+		*size = grow;
+	}
 
 	args->lpo = *offset;
 	args->len = len;
-	*offset += args->len;
-
-	*log = libnvme_realloc(*log, *offset);
-	if (!*log)
-		return -ENOMEM;
+	*offset = need;
 
 	args->log = (char *)*log + args->lpo;
 
@@ -2326,21 +2338,36 @@ static int get_log_offset(struct libnvme_transport_handle *hdl,
 	return err;
 }
 
-static int get_reachability_group_desc(struct libnvme_transport_handle *hdl, struct nvme_get_log_args *args,
-				       __u64 *offset, struct nvme_reachability_groups_log **logp)
+static int get_reachability_group_desc(struct libnvme_transport_handle *hdl,
+		struct nvme_get_log_args *args, __u64 *offset,
+		struct nvme_reachability_groups_log **logp, __u64 *size)
 {
 	int err;
 	struct nvme_reachability_groups_log *log = *logp;
+	struct nvme_reachability_group_desc rgd;
+	__u64 desc;
+	__u32 nnid;
 	__u16 i;
-	__u32 len;
 
+	/* each descriptor is followed by its list of namespace IDs */
 	for (i = 0; i < le16_to_cpu(log->nrgd); i++) {
-		len = sizeof(*log->rgd);
-		err = get_log_offset(hdl, args, offset, len, (void **)&log);
+		desc = *offset;
+		err = get_log_offset(hdl, args, offset, sizeof(rgd),
+				     (void **)&log, size);
 		if (err)
 			goto err_free;
-		len = le32_to_cpu(log->rgd[i].nnid) * sizeof(*log->rgd[i].nsid);
-		err = get_log_offset(hdl, args, offset, len, (void **)&log);
+		/* the descriptors are only 4 byte aligned */
+		memcpy(&rgd, (void *)log + desc, sizeof(rgd));
+		nnid = le32_to_cpu(rgd.nnid);
+		if (!nnid)
+			continue;
+		if (nnid > UINT32_MAX / sizeof(*rgd.nsid)) {
+			err = -EINVAL;
+			goto err_free;
+		}
+		err = get_log_offset(hdl, args, offset,
+				     nnid * sizeof(*rgd.nsid), (void **)&log,
+				     size);
 		if (err)
 			goto err_free;
 	}
@@ -2362,6 +2389,7 @@ static int get_reachability_groups(struct libnvme_transport_handle *hdl, bool rg
 	struct nvme_reachability_groups_log *log;
 	struct libnvme_passthru_cmd cmd;
 	__u64 log_len = sizeof(*log);
+	__u64 size = log_len;
 	struct nvme_get_log_args args = {
 		.lid = NVME_LOG_LID_REACHABILITY_GROUPS,
 		.nsid = NVME_NSID_ALL,
@@ -2374,11 +2402,11 @@ static int get_reachability_groups(struct libnvme_transport_handle *hdl, bool rg
 		return -ENOMEM;
 
 	nvme_init_get_log_reachability_groups(&cmd, rgo, log, log_len);
-	err = libnvme_get_log(hdl, &cmd, false, log_len);
+	err = libnvme_get_log(hdl, &cmd, rae, log_len);
 	if (err)
 		goto err_free;
 
-	err = get_reachability_group_desc(hdl, &args, &log_len, &log);
+	err = get_reachability_group_desc(hdl, &args, &log_len, &log, &size);
 	if (err)
 		goto err_free;
 
@@ -2413,19 +2441,17 @@ static int get_reachability_groups_log(int argc, char **argv, struct command *ac
 		.rae = false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("groups-only", 'g', &cfg.rgo, rgo),
-		  OPT_FLAG("rae", 'r', &cfg.rae, rae));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("groups-only", 'g', &cfg.rgo, rgo),
+		OPT_FLAG("rae",         'r', &cfg.rae, rae),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	err = get_reachability_groups(hdl, cfg.rgo, cfg.rae, &log, &len);
 	if (err) {
@@ -2438,22 +2464,37 @@ static int get_reachability_groups_log(int argc, char **argv, struct command *ac
 	return err;
 }
 
-static int get_reachability_association_desc(struct libnvme_transport_handle *hdl, struct nvme_get_log_args *args,
-					     __u64 *offset,
-					     struct nvme_reachability_associations_log **logp)
+static int get_reachability_association_desc(
+		struct libnvme_transport_handle *hdl,
+		struct nvme_get_log_args *args, __u64 *offset,
+		struct nvme_reachability_associations_log **logp, __u64 *size)
 {
 	int err;
 	struct nvme_reachability_associations_log *log = *logp;
+	struct nvme_reachability_association_desc rad;
+	__u64 desc;
+	__u32 nrid;
 	__u16 i;
-	__u32 len;
 
+	/* each descriptor is followed by its list of reachability group IDs */
 	for (i = 0; i < le16_to_cpu(log->nrad); i++) {
-		len = sizeof(*log->rad);
-		err = get_log_offset(hdl, args, offset, len, (void **)&log);
+		desc = *offset;
+		err = get_log_offset(hdl, args, offset, sizeof(rad),
+				     (void **)&log, size);
 		if (err)
 			goto err_free;
-		len = le32_to_cpu(log->rad[i].nrid) * sizeof(*log->rad[i].rgid);
-		err = get_log_offset(hdl, args, offset, len, (void **)&log);
+		/* the descriptors are only 4 byte aligned */
+		memcpy(&rad, (void *)log + desc, sizeof(rad));
+		nrid = le32_to_cpu(rad.nrid);
+		if (!nrid)
+			continue;
+		if (nrid > UINT32_MAX / sizeof(*rad.rgid)) {
+			err = -EINVAL;
+			goto err_free;
+		}
+		err = get_log_offset(hdl, args, offset,
+				     nrid * sizeof(*rad.rgid), (void **)&log,
+				     size);
 		if (err)
 			goto err_free;
 	}
@@ -2475,6 +2516,7 @@ static int get_reachability_associations(struct libnvme_transport_handle *hdl, b
 	struct nvme_reachability_associations_log *log;
 	struct libnvme_passthru_cmd cmd;
 	__u64 log_len = sizeof(*log);
+	__u64 size = log_len;
 	struct nvme_get_log_args args = {
 		.lid = NVME_LOG_LID_REACHABILITY_ASSOCIATIONS,
 		.nsid = NVME_NSID_ALL,
@@ -2491,7 +2533,8 @@ static int get_reachability_associations(struct libnvme_transport_handle *hdl, b
 	if (err)
 		goto err_free;
 
-	err = get_reachability_association_desc(hdl, &args, &log_len, &log);
+	err = get_reachability_association_desc(hdl, &args, &log_len, &log,
+						&size);
 	if (err)
 		goto err_free;
 
@@ -2526,19 +2569,17 @@ static int get_reachability_associations_log(int argc, char **argv, struct comma
 		.rae = false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("associations-only", 'a', &cfg.rao, rao),
-		  OPT_FLAG("rae", 'r', &cfg.rae, rae));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("associations-only", 'a', &cfg.rao, rao),
+		OPT_FLAG("rae",               'r', &cfg.rae, rae),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	err = get_reachability_associations(hdl, cfg.rao, cfg.rae, &log, &len);
 	if (err) {
@@ -2552,12 +2593,15 @@ static int get_reachability_associations_log(int argc, char **argv, struct comma
 }
 
 static int get_host_discovery(struct libnvme_transport_handle *hdl, bool allhoste, bool rae,
-			      struct nvme_host_discovery_log **logp)
+			      struct nvme_host_discovery_log **logp,
+			      __u64 *lenp)
 {
 	int err;
 	struct nvme_host_discovery_log *log;
 	struct libnvme_passthru_cmd cmd;
 	__u64 log_len = sizeof(*log);
+	__u64 size = log_len;
+	__u32 thdlpl;
 	struct nvme_get_log_args args = {
 		.lid = NVME_LOG_LID_HOST_DISCOVERY,
 		.nsid = NVME_NSID_ALL,
@@ -2569,18 +2613,22 @@ static int get_host_discovery(struct libnvme_transport_handle *hdl, bool allhost
 	if (!log)
 		return -ENOMEM;
 
-	nvme_init_get_log_host_discovery(&cmd, rae, log, log_len);
-	err = libnvme_get_log(hdl, &cmd, false, log_len);
+	nvme_init_get_log_host_discovery(&cmd, allhoste, log, log_len);
+	err = libnvme_get_log(hdl, &cmd, rae, log_len);
 	if (err)
 		goto err_free;
 
-	log_len = le32_to_cpu(log->thdlpl);
-	err = get_log_offset(hdl, &args, &log_len, le32_to_cpu(log->thdlpl) - log_len,
-			     (void **)&log);
-	if (err)
-		goto err_free;
+	/* the records follow the header */
+	thdlpl = le32_to_cpu(log->thdlpl);
+	if (thdlpl > log_len) {
+		err = get_log_offset(hdl, &args, &log_len, thdlpl - log_len,
+				     (void **)&log, &size);
+		if (err)
+			goto err_free;
+	}
 
 	*logp = log;
+	*lenp = log_len;
 	return 0;
 
 err_free:
@@ -2595,6 +2643,7 @@ static int get_host_discovery_log(int argc, char **argv, struct command *acmd, s
 	nvme_print_flags_t flags;
 	int err;
 	__cleanup_libnvme_free struct nvme_host_discovery_log *log = NULL;
+	__u64 log_len;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 
@@ -2608,39 +2657,39 @@ static int get_host_discovery_log(int argc, char **argv, struct command *acmd, s
 		.rae = false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("all-host-entries", 'a', &cfg.allhoste, allhoste),
-		  OPT_FLAG("rae", 'r', &cfg.rae, rae));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("all-host-entries", 'a', &cfg.allhoste, allhoste),
+		OPT_FLAG("rae",              'r', &cfg.rae,      rae),
+		OPT_END()
+	};
 
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
-	err = get_host_discovery(hdl, cfg.allhoste, cfg.rae, &log);
+	err = get_host_discovery(hdl, cfg.allhoste, cfg.rae, &log, &log_len);
 	if (err) {
 		nvme_show_err(err, "host discovery log");
 		return err;
 	}
 
-	nvme_show_host_discovery_log(log, flags);
+	nvme_show_host_discovery_log(log, log_len, flags);
 
 	return err;
 }
 
 static int get_ave_discovery(struct libnvme_transport_handle *hdl, bool rae,
-			     struct nvme_ave_discovery_log **logp)
+			     struct nvme_ave_discovery_log **logp, __u64 *lenp)
 {
 	int err;
 	struct nvme_ave_discovery_log *log;
 	struct libnvme_passthru_cmd cmd;
 	__u64 log_len = sizeof(*log);
+	__u64 size = log_len;
+	__u32 tadlpl;
 	struct nvme_get_log_args args = {
 		.lid = NVME_LOG_LID_AVE_DISCOVERY,
 		.nsid = NVME_NSID_ALL,
@@ -2656,13 +2705,17 @@ static int get_ave_discovery(struct libnvme_transport_handle *hdl, bool rae,
 	if (err)
 		goto err_free;
 
-	log_len = le32_to_cpu(log->tadlpl);
-	err = get_log_offset(hdl, &args, &log_len, le32_to_cpu(log->tadlpl) - log_len,
-			     (void **)&log);
-	if (err)
-		goto err_free;
+	/* the records follow the header */
+	tadlpl = le32_to_cpu(log->tadlpl);
+	if (tadlpl > log_len) {
+		err = get_log_offset(hdl, &args, &log_len, tadlpl - log_len,
+				     (void **)&log, &size);
+		if (err)
+			goto err_free;
+	}
 
 	*logp = log;
+	*lenp = log_len;
 	return 0;
 
 err_free:
@@ -2677,6 +2730,7 @@ static int get_ave_discovery_log(int argc, char **argv, struct command *acmd, st
 	int err;
 
 	__cleanup_libnvme_free struct nvme_ave_discovery_log *log = NULL;
+	__u64 log_len;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 
@@ -2688,36 +2742,39 @@ static int get_ave_discovery_log(int argc, char **argv, struct command *acmd, st
 		.rae = false,
 	};
 
-	NVME_ARGS(opts, OPT_FLAG("rae", 'r', &cfg.rae, rae));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("rae", 'r', &cfg.rae, rae),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
-	err = get_ave_discovery(hdl, cfg.rae, &log);
+	err = get_ave_discovery(hdl, cfg.rae, &log, &log_len);
 	if (err) {
 		nvme_show_err(err, "ave discovery log");
 		return err;
 	}
 
-	nvme_show_ave_discovery_log(log, flags);
+	nvme_show_ave_discovery_log(log, log_len, flags);
 
 	return err;
 }
 
 static int get_pull_model_ddc_req(struct libnvme_transport_handle *hdl,
-				  bool rae, struct nvme_pull_model_ddc_req_log **logp)
+				  bool rae,
+				  struct nvme_pull_model_ddc_req_log **logp,
+				  __u64 *lenp)
 {
 	int err;
 	struct nvme_pull_model_ddc_req_log *log;
 	struct libnvme_passthru_cmd cmd;
 	__u64 log_len = sizeof(*log);
+	__u64 size = log_len;
+	__u32 tpdrpl;
 	struct nvme_get_log_args args = {
 		.lid = NVME_LOG_LID_PULL_MODEL_DDC_REQ,
 		.nsid = NVME_NSID_ALL,
@@ -2733,13 +2790,17 @@ static int get_pull_model_ddc_req(struct libnvme_transport_handle *hdl,
 	if (err)
 		goto err_free;
 
-	log_len = le32_to_cpu(log->tpdrpl);
-	err = get_log_offset(hdl, &args, &log_len, le32_to_cpu(log->tpdrpl) - log_len,
-			     (void **)&log);
-	if (err)
-		goto err_free;
+	/* the operating system specific parameters follow the header */
+	tpdrpl = le32_to_cpu(log->tpdrpl);
+	if (tpdrpl > log_len) {
+		err = get_log_offset(hdl, &args, &log_len, tpdrpl - log_len,
+				     (void **)&log, &size);
+		if (err)
+			goto err_free;
+	}
 
 	*logp = log;
+	*lenp = log_len;
 	return 0;
 
 err_free:
@@ -2755,6 +2816,7 @@ static int get_pull_model_ddc_req_log(int argc, char **argv, struct command *acm
 	int err;
 
 	__cleanup_libnvme_free struct nvme_pull_model_ddc_req_log *log = NULL;
+	__u64 log_len;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 
@@ -2766,25 +2828,24 @@ static int get_pull_model_ddc_req_log(int argc, char **argv, struct command *acm
 		.rae = false,
 	};
 
-	NVME_ARGS(opts, OPT_FLAG("rae", 'r', &cfg.rae, rae));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("rae", 'r', &cfg.rae, rae),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
-	err = get_pull_model_ddc_req(hdl, cfg.rae, &log);
+	err = get_pull_model_ddc_req(hdl, cfg.rae, &log, &log_len);
 	if (err) {
 		nvme_show_err(err, "pull model ddc req log");
 		return err;
 	}
 
-	nvme_show_pull_model_ddc_req_log(log, flags);
+	nvme_show_pull_model_ddc_req_log(log, log_len, flags);
 
 	return err;
 }

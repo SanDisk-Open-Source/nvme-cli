@@ -30,8 +30,13 @@
 
 __shr_public void *libnvme_alloc(size_t len)
 {
-	size_t _len = round_up(len, 0x1000);
+	size_t _len;
 	void *p;
+
+	/* a zero size is implementation-defined, get a page */
+	if (!len)
+		len = 1;
+	_len = round_up(len, 0x1000);
 
 	if (posix_memalign((void *)&p, getpagesize(), _len))
 		return NULL;
@@ -63,6 +68,12 @@ __shr_public void *libnvme_alloc_huge(size_t len,
 {
 	memset(mh, 0, sizeof(*mh));
 
+	/*
+	 * Even a zero length gets memory, which libnvme_free_huge() only
+	 * frees with a length: allocate at least a page.
+	 */
+	if (!len)
+		len = 1;
 	len = round_up(len, 0x1000);
 
 	mh->p = libnvme_alloc(len);

@@ -13,7 +13,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <inttypes.h>
 #include <libgen.h>
 #include <locale.h>
@@ -261,27 +260,29 @@ static int get_feature(int argc, char **argv, struct command *acmd,
 		.uuid_index	= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_BYTE("feature-id",     'f', &cfg.feature_id,     feature_id, feature_name),
-		  OPT_UINT("namespace-id",   'n', &cfg.namespace_id,   namespace_id_desired),
-		  OPT_BYTE("sel",            's', &cfg.sel,            sel),
-		  OPT_UINT("data-len",       'l', &cfg.data_len,       buf_len),
-		  OPT_FLAG("raw-binary",     'b', &cfg.raw_binary,     raw),
-		  OPT_UINT("cdw11",          'c', &cfg.cdw11,          cdw11),
-		  OPT_BYTE("uuid-index",     'U', &cfg.uuid_index,     uuid_index_specify),
-		  OPT_FLAG("changed",        'C', &cfg.changed,        changed));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("feature-id", 'f', &cfg.feature_id, feature_id,
+			 feature_name),
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_desired, nvme_nsid_values),
+		OPT_BYTE("sel",          's', &cfg.sel,          sel,
+			 nvme_sel_values, .max = NVME_SEL_MAX),
+		OPT_UINT("data-len",     'l', &cfg.data_len,     buf_len),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw),
+		OPT_UINT("cdw11",        'c', &cfg.cdw11,        cdw11),
+		OPT_BYTE("uuid-index", 'U', &cfg.uuid_index,
+			 uuid_index_specify),
+		OPT_FLAG("changed",      'C', &cfg.changed,      changed),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
-	if (!argconfig_parse_seen(opts, "namespace-id")) {
+	if (!argconfig_given(opts, &cfg.namespace_id)) {
 		err = libnvme_get_nsid(hdl, &cfg.namespace_id);
 		if (err < 0) {
 			if (errno != ENOTTY) {
@@ -336,7 +337,6 @@ static int set_feature(int argc, char **argv, struct command *acmd, struct plugi
 	__cleanup_fd int ffd = STDIN_FILENO;
 	int err;
 	__u64 result;
-	nvme_print_flags_t flags;
 
 	struct config {
 		__u32	nsid;
@@ -359,27 +359,24 @@ static int set_feature(int argc, char **argv, struct command *acmd, struct plugi
 		.sv			= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id", 'n', &cfg.nsid,     namespace_desired),
-		  OPT_BYTE("feature-id",   'f', &cfg.fid,      fid, feature_name),
-		  OPT_SUFFIX("value",      'V', &cfg.value,    value),
-		  OPT_UINT("cdw12",        'c', &cfg.cdw12,    cdw12),
-		  OPT_BYTE("uuid-index",   'U', &cfg.uidx,     uuid_index_specify),
-		  OPT_UINT("data-len",     'l', &cfg.data_len, buf_len),
-		  OPT_FILE("data",         'd', &cfg.file,     data),
-		  OPT_FLAG("save",         's', &cfg.sv,       sv));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.nsid, namespace_desired,
+			 nvme_nsid_values),
+		OPT_BYTE("feature-id", 'f', &cfg.fid,      fid, feature_name),
+		OPT_SUFFIX("value",    'V', &cfg.value,    value),
+		OPT_UINT("cdw12",      'c', &cfg.cdw12,    cdw12),
+		OPT_BYTE("uuid-index", 'U', &cfg.uidx,     uuid_index_specify),
+		OPT_UINT("data-len",   'l', &cfg.data_len, buf_len),
+		OPT_FILE("data",       'd', &cfg.file,     data),
+		OPT_FLAG("save",       's', &cfg.sv,       sv),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
-
-	if (!argconfig_parse_seen(opts, "namespace-id")) {
+	if (!argconfig_given(opts, &cfg.nsid)) {
 		err = libnvme_get_nsid(hdl, &cfg.nsid);
 		if (err < 0) {
 			if (errno != ENOTTY) {
@@ -419,7 +416,7 @@ static int set_feature(int argc, char **argv, struct command *acmd, struct plugi
 		 * length.
 		 */
 		if (cfg.fid == NVME_FEAT_FID_TIMESTAMP &&
-		    argconfig_parse_seen(opts, "value")) {
+		    argconfig_given(opts, &cfg.value)) {
 			memcpy(buf, &cfg.value, NVME_FEAT_TIMESTAMP_DATA_SIZE);
 		} else {
 			if (strlen(cfg.file))

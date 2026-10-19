@@ -9,6 +9,9 @@ privsep_test_args = []
 if want_sed and conf.get('NVME_HAVE_SED_OPAL') != 0
     privsep_test_args += '-DTEST_SED'
 endif
+if want_fabrics
+    privsep_test_args += '-DTEST_FABRICS'
+endif
 
 mock_ioctl = library(
     'mock-ioctl',
@@ -40,6 +43,7 @@ test(
     args: [privsep_helper.full_path(), mock_ioctl.full_path()],
     depends: [privsep_helper, mock_ioctl],
     env: privsep_env,
+    suite: 'unit',
 )
 
 privsep_proto_test = executable(
@@ -47,6 +51,7 @@ privsep_proto_test = executable(
     ['proto.c', '../ioctl/util.c'],
     c_args: privsep_test_args,
     dependencies: [
+        ccan_dep,
         config_dep,
         libnvme_dep,
     ],
@@ -59,4 +64,5 @@ test(
     args: [privsep_helper.full_path(), mock_ioctl.full_path()],
     depends: [privsep_helper, mock_ioctl],
     env: privsep_env,
+    suite: 'unit',
 )

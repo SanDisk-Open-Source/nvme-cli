@@ -14,7 +14,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <inttypes.h>
 #include <libgen.h>
 #include <locale.h>
@@ -35,6 +34,7 @@
 #include <ccan/array_size/array_size.h>
 #include <ccan/endian/endian.h>
 #include <ccan/minmax/minmax.h>
+#include <shared/compiler-attributes-util.h>
 #include <shared/fs-util.h>
 #include <shared/mmio-util.h>
 #include <shared/parse-util.h>
@@ -96,19 +96,18 @@ int __id_ctrl(int argc, char **argv, struct command *acmd, struct plugin *plugin
 		.raw_binary		= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("vendor-specific", 'V', &cfg.vendor_specific, vendor_specific),
-		  OPT_FLAG("raw-binary",      'b', &cfg.raw_binary,      raw_identify));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("vendor-specific", 'V', &cfg.vendor_specific,
+			 vendor_specific),
+		OPT_FLAG("raw-binary",      'b', &cfg.raw_binary, raw_identify),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -144,9 +143,11 @@ void register_extension(struct plugin *plugin)
 
 /*
  * plugin_add_group() runs from constructors, before main(), and its
- * allocations live for the whole process. Release them at exit.
+ * allocations live for the whole process. Release them at exit. A
+ * destructor, not atexit(), so main() can run more than once in a
+ * process, as the fuzz tests do.
  */
-static void free_plugins(void)
+static void __shr_destructor free_plugins(void)
 {
 	struct plugin *plugin;
 
@@ -162,7 +163,7 @@ static void free_plugins(void)
 	}
 }
 
-int main(int argc, char **argv)
+int nvme_main(int argc, char **argv)
 {
 	int err;
 
@@ -176,12 +177,12 @@ int main(int argc, char **argv)
 #endif
 
 	nvme.extensions->parent = &nvme;
-	atexit(free_plugins);
 	if (argc < 2) {
 		general_help(&builtin, NULL);
 		return 0;
 	}
 	setlocale(LC_ALL, "");
+	nvme_args_register();
 
 	err = nvme_load_global_config();
 	if (err)
@@ -192,10 +193,12 @@ int main(int argc, char **argv)
 		return err;
 
 	err = handle_plugin(argc, argv, nvme.extensions);
-	if (err == -ENOTTY)
-		general_help(&builtin, NULL);
 
 	nvme_show_finish();
+
+	/* the command stopped after printing the help it was asked for */
+	if (argconfig_help_requested())
+		return 0;
 
 	return err ? 1 : 0;
 }

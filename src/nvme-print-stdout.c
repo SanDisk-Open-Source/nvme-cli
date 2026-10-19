@@ -32,6 +32,7 @@
 #include <shared/uuid-util.h>
 #include <shared/string-util.h>
 
+#include "argconfig.h"
 #include "cleanup.h"
 #include "logging.h"
 #include "nvme-print.h"
@@ -287,7 +288,9 @@ static void stdout_kv_render(FILE *stream, struct shr_table *t);
 static void stdout_fdp_ruh_status(struct nvme_fdp_ruh_status *status,
 				  size_t len)
 {
-	uint16_t nruhsd = le16_to_cpu(status->nruhsd);
+	uint16_t nruhsd = nvme_log_nr_entries(le16_to_cpu(status->nruhsd),
+					      len, sizeof(*status),
+					      sizeof(status->ruhss[0]));
 	struct shr_table *t;
 
 	for (unsigned int i = 0; i < nruhsd; i++) {
@@ -1397,7 +1400,8 @@ static void stdout_single_property(int offset, uint64_t value)
 	stdout_ctrl_register_common(offset, value, true);
 }
 
-static void stdout_status(int status)
+/* The status line, which may follow other text */
+static void stdout_status_line(int status)
 {
 	int val;
 	int type;
@@ -1437,6 +1441,7 @@ static void stdout_opcode_status(int status, bool admin, __u8 opcode)
 	int val = nvme_status_get_value(status);
 	int type = nvme_status_get_type(status);
 
+	argconfig_print_error_label();
 	if (status >= 0 && type == NVME_STATUS_TYPE_NVME) {
 		fprintf(stderr, "NVMe status: %s(0x%x)\n",
 			libnvme_opcode_status_to_string(val, admin, opcode),
@@ -1444,14 +1449,21 @@ static void stdout_opcode_status(int status, bool admin, __u8 opcode)
 		return;
 	}
 
-	stdout_status(status);
+	stdout_status_line(status);
+}
+
+static void stdout_status(int status)
+{
+	argconfig_print_error_label();
+	stdout_status_line(status);
 }
 
 static void stdout_error_status(int status, const char *msg, va_list ap)
 {
+	argconfig_print_error_label();
 	vfprintf(stderr, msg, ap);
 	fprintf(stderr, ": ");
-	stdout_status(status);
+	stdout_status_line(status);
 }
 
 char *stdout_power_and_scale_str(__u16 power, __u8 scale)
@@ -2123,6 +2135,8 @@ static void stdout_host_mem_buffer(struct nvme_host_mem_buf_attrs *hmb)
 static void stdout_directive_show_fields(__u8 dtype, __u8 doper,
 					 unsigned int result, unsigned char *buf)
 {
+	struct nvme_streams_directive_params *params = (void *)buf;
+	struct nvme_streams_directive_status *status = (void *)buf;
 	__u8 *field = buf;
 	int count, i;
 	struct shr_table *t;
@@ -2202,47 +2216,45 @@ static void stdout_directive_show_fields(__u8 dtype, __u8 doper,
 				return;
 
 			stdout_kv_add(t, "Max Streams Limit (MSL)", "%u",
-				      *(__u16 *)field);
+				      le16_to_cpu(params->msl));
 			stdout_kv_add(t,
 				      "NVM Subsystem Streams Available (NSSA)",
-				      "%u", *(__u16 *)(field + 2));
+				      "%u", le16_to_cpu(params->nssa));
 			stdout_kv_add(t,
 				      "NVM Subsystem Streams Open (NSSO)",
-				      "%u", *(__u16 *)(field + 4));
+				      "%u", le16_to_cpu(params->nsso));
 			stdout_kv_add(t,
 				      "NVM Subsystem Stream Capability (NSSC)",
-				      "%u", *(__u16 *)(field + 6));
+				      "%u", params->nssc);
 			stdout_kv_add(t,
 				      "Stream Write Size (in unit of LB size) (SWS)",
-				      "%u", *(__u32 *)(field + 16));
+				      "%u", le32_to_cpu(params->sws));
 			stdout_kv_add(t,
 				      "Stream Granularity Size (in unit of SWS) (SGS)",
-				      "%u", *(__u16 *)(field + 20));
+				      "%u", le16_to_cpu(params->sgs));
 			stdout_kv_add(t,
 				      "Namespace Streams Allocated (NSA)",
-				      "%u", *(__u16 *)(field + 22));
+				      "%u", le16_to_cpu(params->nsa));
 			stdout_kv_add(t, "Namespace Streams Open (NSO)", "%u",
-				      *(__u16 *)(field + 24));
+				      le16_to_cpu(params->nso));
 
 			stdout_kv_table_finish(t, "directive-show");
 			break;
 		case NVME_DIRECTIVE_RECEIVE_STREAMS_DOPER_STATUS:
-			count = *(__u16 *)field;
+			count = le16_to_cpu(status->osc);
 
 			t = stdout_kv_table_create();
 			if (!t)
 				return;
 
-			stdout_kv_add(t, "Open Stream Count", "%u",
-				      *(__u16 *)field);
+			stdout_kv_add(t, "Open Stream Count", "%u", count);
 			for (i = 0; i < count; i++) {
 				char name[32];
 
 				snprintf(name, sizeof(name),
 					 "Stream Identifier %.6u", i + 1);
 				stdout_kv_add(t, name, "%u",
-					      *(__u16 *)(field +
-							 (i + 1) * 2));
+					      le16_to_cpu(status->sid[i]));
 			}
 
 			stdout_kv_table_finish(t, "directive-show");
@@ -2522,8 +2534,8 @@ static void stdout_host_metadata(enum nvme_features_id fid,
 				 struct nvme_host_metadata *data)
 {
 	struct nvme_metadata_element_desc *desc = &data->descs[0];
+	__u8 *end = (__u8 *)data + sizeof(*data);
 	int i;
-	char val[4096];
 	__u16 len;
 	struct shr_table *t;
 
@@ -2536,8 +2548,10 @@ static void stdout_host_metadata(enum nvme_features_id fid,
 	stdout_kv_table_finish(t, "host-metadata");
 
 	for (i = 0; i < data->ndesc; i++) {
-		len = le16_to_cpu(desc->len);
-		strncpy(val, (char *)desc->val, min(sizeof(val) - 1, len));
+		/* the descriptors and their values end with the structure */
+		if (desc->val > end)
+			break;
+		len = min_t(size_t, le16_to_cpu(desc->len), end - desc->val);
 
 		printf("\tElement[%-3d]:\n", i);
 
@@ -2550,12 +2564,12 @@ static void stdout_host_metadata(enum nvme_features_id fid,
 			      nvme_host_metadata_type_to_string(fid,
 								 desc->type));
 		stdout_kv_add(t, "Revision", "%d", desc->rev);
-		stdout_kv_add(t, "Length", "%d", len);
-		stdout_kv_add(t, "Value", "%s", val);
+		stdout_kv_add(t, "Length", "%d", le16_to_cpu(desc->len));
+		stdout_kv_add(t, "Value", "%.*s", len, (char *)desc->val);
 
 		stdout_kv_table_finish(t, "host-metadata");
 
-		desc = (struct nvme_metadata_element_desc *)&desc->val[desc->len];
+		desc = (struct nvme_metadata_element_desc *)&desc->val[len];
 	}
 }
 
@@ -2603,7 +2617,7 @@ void stdout_feature_show_fields(enum nvme_features_id fid, unsigned int result,
 	const char *async = "Send async event";
 	const char *no_async = "Do not send async event";
 	struct shr_table *t;
-	__u8 field;
+	__u16 field;
 
 	switch (fid) {
 	case NVME_FEAT_FID_ARBITRATION:
@@ -3093,7 +3107,8 @@ void stdout_feature_show_fields(enum nvme_features_id fid, unsigned int result,
 		if (!t)
 			return;
 
-		for (unsigned int i = 0; i < result; i++) {
+		// NOET is in bits 7:0; bits 31:8 are reserved.
+		for (unsigned int i = 0; i < (result & 0xff); i++) {
 			struct nvme_fdp_supported_event_desc *d;
 
 			d = &((struct nvme_fdp_supported_event_desc *)buf)[i];
@@ -4192,6 +4207,8 @@ static void stdout_topology_multipath(struct libnvme_global_ctx *ctx)
 
 static void stdout_message(bool error, const char *msg, va_list ap)
 {
+	if (error)
+		argconfig_print_error_label();
 	vfprintf(error ? stderr : stdout, msg, ap);
 
 	fprintf(error ? stderr : stdout, "\n");
@@ -4200,11 +4217,14 @@ static void stdout_message(bool error, const char *msg, va_list ap)
 static void stdout_perror(const char *msg, va_list ap)
 {
 	__cleanup_free char *error = NULL;
+	int err = errno;
 
 	if (vasprintf(&error, msg, ap) < 0)
 		error = NULL;
 
-	perror(error ? error : alloc_error);
+	argconfig_print_error_label();
+	fprintf(stderr, "%s: %s\n", error ? error : alloc_error,
+		strerror(err));
 }
 
 static void stdout_key_value(const char *key, const char *val, va_list ap)

@@ -50,19 +50,18 @@ static int list_ctrl(int argc, char **argv, struct command *acmd, struct plugin 
 		.namespace_id	= NVME_NSID_NONE,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_SHRT("cntid",        'c', &cfg.cntid,         controller),
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id_optional));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("cntid",        'c', &cfg.cntid,        controller),
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_optional, nvme_nsid_values),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0 || (flags != JSON && flags != NORMAL)) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	cntlist = libnvme_alloc(sizeof(*cntlist));
 	if (!cntlist)
@@ -113,20 +112,19 @@ static int list_ns(int argc, char **argv, struct command *acmd, struct plugin *p
 		.all		= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
-		  OPT_INT("csi",           'y', &cfg.csi,           csi),
-		  OPT_FLAG("all",          'a', &cfg.all,           all));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_INT("csi",           'y', &cfg.csi,          csi),
+		OPT_FLAG("all",          'a', &cfg.all,          all),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0 || (flags != JSON && flags != NORMAL)) {
-		nvme_show_error("Invalid output format");
-		return -EINVAL;
-	}
+	flags = nvme_args.output_flags;
 
 	if (!cfg.namespace_id) {
 		nvme_show_error("invalid nsid parameter");
@@ -185,19 +183,18 @@ static int id_ns_lba_format(int argc, char **argv, struct command *acmd, struct 
 		.uuid_index		= NVME_UUID_NONE,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("lba-format-index", 'i', &cfg.lba_format_index, lba_format_index),
-		  OPT_BYTE("uuid-index",       'U', &cfg.uuid_index,       uuid_index));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("lba-format-index", 'i', &cfg.lba_format_index,
+			 lba_format_index),
+		OPT_BYTE("uuid-index",       'U', &cfg.uuid_index, uuid_index),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -242,18 +239,16 @@ static int id_endurance_grp_list(int argc, char **argv, struct command *acmd,
 		.endgrp_id	= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_SHRT("endgrp-id",    'i', &cfg.endgrp_id,     endurance_grp_id));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("endgrp-id", 'i', &cfg.endgrp_id, endurance_grp_id),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0 || (flags != JSON && flags != NORMAL)) {
-		nvme_show_error("invalid output format");
-		return -EINVAL;
-	}
+	flags = nvme_args.output_flags;
 
 	endgrp_list = libnvme_alloc(sizeof(*endgrp_list));
 	if (!endgrp_list)
@@ -291,17 +286,15 @@ static int nvm_id_ctrl(int argc, char **argv, struct command *acmd,
 	nvme_print_flags_t flags;
 	int err = -1;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -347,19 +340,18 @@ static int nvm_id_ns(int argc, char **argv, struct command *acmd,
 		.uuid_index	= NVME_UUID_NONE,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id,    namespace_id_desired),
-		  OPT_BYTE("uuid-index",   'U', &cfg.uuid_index,      uuid_index));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_desired, nvme_nsid_values),
+		OPT_BYTE("uuid-index",   'U', &cfg.uuid_index,   uuid_index),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -424,19 +416,18 @@ static int nvm_id_ns_lba_format(int argc, char **argv, struct command *acmd, str
 		.uuid_index		= NVME_UUID_NONE,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("lba-format-index", 'i', &cfg.lba_format_index, lba_format_index),
-		  OPT_BYTE("uuid-index",       'U', &cfg.uuid_index,       uuid_index));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("lba-format-index", 'i', &cfg.lba_format_index,
+			 lba_format_index),
+		OPT_BYTE("uuid-index",       'U', &cfg.uuid_index, uuid_index),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -495,19 +486,18 @@ static int ns_descs(int argc, char **argv, struct command *acmd, struct plugin *
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id",  'n', &cfg.namespace_id,  namespace_id_desired),
-		  OPT_FLAG("raw-binary",    'b', &cfg.raw_binary,    raw));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_desired, nvme_nsid_values),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -569,21 +559,21 @@ static int id_ns(int argc, char **argv, struct command *acmd, struct plugin *plu
 		.raw_binary		= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id",    'n', &cfg.namespace_id,    namespace_id_desired),
-		  OPT_FLAG("force",             0, &cfg.force,           force),
-		  OPT_FLAG("vendor-specific", 'V', &cfg.vendor_specific, vendor_specific),
-		  OPT_FLAG("raw-binary",      'b', &cfg.raw_binary,      raw_identify));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_desired, nvme_nsid_values),
+		OPT_FLAG("force",        0,   &cfg.force,        force),
+		OPT_FLAG("vendor-specific", 'V', &cfg.vendor_specific,
+			 vendor_specific),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw_identify),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -648,19 +638,18 @@ static int cmd_set_independent_id_ns(int argc, char **argv, struct command *acmd
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id_desired),
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw_identify));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_desired, nvme_nsid_values),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw_identify),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -707,17 +696,15 @@ static int id_ns_granularity(int argc, char **argv, struct command *acmd, struct
 	nvme_print_flags_t flags;
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	granularity_list = libnvme_alloc(NVME_IDENTIFY_DATA_SIZE);
 	if (!granularity_list)
@@ -758,18 +745,16 @@ static int id_nvmset(int argc, char **argv, struct command *acmd, struct plugin 
 		.nvmset_id	= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_SHRT("nvmset_id",    'i', &cfg.nvmset_id,     nvmset_id));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("nvmset_id", 'i', &cfg.nvmset_id, nvmset_id),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	nvmset = libnvme_alloc(sizeof(*nvmset));
 	if (!nvmset)
@@ -810,18 +795,16 @@ static int id_uuid(int argc, char **argv, struct command *acmd, struct plugin *p
 		.raw_binary	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("raw-binary",     'b', &cfg.raw_binary,     raw));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.raw_binary)
 		flags = BINARY;
@@ -867,18 +850,16 @@ static int id_iocs(int argc, char **argv, struct command *acmd, struct plugin *p
 		.cntid	= 0xffff,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_SHRT("controller-id", 'c', &cfg.cntid, controller_id));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("controller-id", 'c', &cfg.cntid, controller_id),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -922,18 +903,16 @@ static int id_domain(int argc, char **argv, struct command *acmd, struct plugin 
 		.dom_id		= 0xffff,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_SHRT("dom-id",         'd', &cfg.dom_id,         domain_id));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("dom-id", 'd', &cfg.dom_id, domain_id),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	id_domain = libnvme_alloc(sizeof(*id_domain));
 	if (!id_domain)
@@ -975,18 +954,16 @@ static int primary_ctrl_caps(int argc, char **argv, struct command *acmd, struct
 		.cntlid		= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("cntlid",         'c', &cfg.cntlid, cntlid));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("cntlid", 'c', &cfg.cntlid, cntlid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.verbose)
 		flags |= VERBOSE;
@@ -1031,19 +1008,17 @@ static int list_secondary_ctrl(int argc, char **argv, struct command *acmd, stru
 		.num_entries	= ARRAY_SIZE(sc_list->sc_entry),
 	};
 
-	NVME_ARGS(opts,
-		  OPT_SHRT("cntid",        'c', &cfg.cntid,         controller),
-		  OPT_UINT("num-entries",  'e', &cfg.num_entries,   num_entries));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("cntid",       'c', &cfg.cntid,       controller),
+		OPT_UINT("num-entries", 'e', &cfg.num_entries, num_entries),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (!cfg.num_entries) {
 		nvme_show_error("non-zero num-entries is required param");
@@ -1095,12 +1070,14 @@ static struct command list_ns_cmd = {
 	.name = "ns-list",
 	.help = "Send NVMe Identify List, display structure",
 	.fn = list_ns,
+	.output_formats = NORMAL | JSON,
 };
 
 static struct command list_ctrl_cmd = {
 	.name = "ctrl-list",
 	.help = "Send NVMe Identify Controller List, display structure",
 	.fn = list_ctrl,
+	.output_formats = NORMAL | JSON,
 };
 
 static struct command nvm_id_ctrl_cmd = {
@@ -1174,6 +1151,7 @@ static struct command id_endurance_grp_list_cmd = {
 	.name = "endgrp-list",
 	.help = "Send NVMe Identify Endurance Group List, display structure",
 	.fn = id_endurance_grp_list,
+	.output_formats = NORMAL | JSON,
 };
 
 static struct command *commands[] = {

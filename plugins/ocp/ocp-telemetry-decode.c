@@ -7,6 +7,8 @@
 
 #include <ccan/array_size/array_size.h>
 #include <ccan/endian/endian.h>
+#include <shared/hex-util.h>
+#include <shared/string-util.h>
 
 #include "nvme-print.h"
 #include "ocp-telemetry-decode.h"
@@ -124,6 +126,125 @@ struct statistic_entry statistic_identifiers_map[] = {
 	{ 0x6D, "Namespace ID Context Statistic Descriptor"},
 	{ 0x6E, "Controller ID Context Statistic Descriptor"},
 	{ 0x6F, "Queue ID Context Statistic Descriptor"}
+};
+
+/* OCP 2.7 Section 4.9.15.2 Event IDs; reserved and obsolete IDs are NULL. */
+static const char * const timestamp_event_id_str[] = {
+	[0x0000] = "Host issued a Timestamp Set Feature Command (Feature ID Eh)",
+	[0x0001] = "Firmware initiated Timestamp Snapshot",
+};
+
+static const char * const pcie_event_id_str[] = {
+	[0x0000] = "Link Up",
+	[0x0001] = "Link Down",
+	[0x0002] = "PCIe Error Detected",
+	[0x0003] = "PERST# Asserted",
+	[0x0004] = "PERST# De-asserted",
+	[0x0005] = "Refclk Stable",
+	[0x0006] = "Vmain Stable",
+	[0x0007] = "Link Speed and Width Negotiated",
+};
+
+static const char * const nvme_event_id_str[] = {
+	[0x0000] = "CC.EN transitions from 0b to 1b",
+	[0x0001] = "CC.EN transitions from 1b to 0b",
+	[0x0002] = "CSTS.RDY transitions from 0b to 1b",
+	[0x0003] = "CSTS.RDY transitions from 1b to 0b",
+	[0x0005] = "Create I/O Submission Queue Command or Create I/O Completion Queue Command Processed successfully",
+	[0x0006] = "In-band Admin Command Processed other than Create I/O Submission Queue Command or Create I/O Completion Queue Command Processed successfully",
+	[0x0007] = "An Admin command returned a non-zero Status Code",
+	[0x0008] = "An I/O Command Returned a Non-zero Status Code",
+	[0x0009] = "CSTS.CFS transitioned from 0b to 1b",
+	[0x000A] = "Admin Submission Queue Base Address Written (AQA) or Admin Completion Queue Based Address (ACQ) written",
+	[0x000B] = "Controller Configuration Register (CC) Changed except for the cases that are covered in 0000h and 0001h",
+	[0x000C] = "Controller Status Register (CSTS) Changed except for the cases that are covered in 0002h, 0003h, and 0009h",
+	[0x000D] = "Delete I/O Completion Queue Command or Delete I/O Submission Queue Command Processed",
+	[0x000E] = "Out-of-band Command Processed",
+	[0x000F] = "Out-of-band Asynchronous Event Message Transmitted",
+	[0x0010] = "Error Reporting AEN was sent (see EREC-5)",
+};
+
+static const char * const reset_event_id_str[] = {
+	[0x0000] = "PCIe Conventional Hot Reset",
+	[0x0001] = "Main Power Cycle",
+	[0x0002] = "PERST#",
+	[0x0003] = "PCIe Function Level Reset",
+	[0x0004] = "NVM Subsystem Reset",
+};
+
+static const char * const boot_sequence_event_id_str[] = {
+	[0x0000] = "Main Firmware Boot Complete",
+	[0x0001] = "FTL Load from NVM Complete",
+	[0x0002] = "FTL Rebuild Started",
+	[0x0003] = "FTL Rebuild Complete",
+};
+
+static const char * const firmware_assert_event_id_str[] = {
+	[0x0000] = "Assert in NVMe Processing Code",
+	[0x0001] = "Assert in Media Code",
+	[0x0002] = "Assert in Security Code",
+	[0x0003] = "Assert in Background Services Code",
+	[0x0004] = "FTL Rebuild Failed",
+	[0x0005] = "FTL Data Mismatch",
+	[0x0006] = "Assert in Other Code",
+};
+
+static const char * const temperature_event_id_str[] = {
+	[0x0000] = "Composite Temperature decreases to (WCTEMP - 2)",
+	[0x0001] = "Composite Temperature increases to WCTEMP",
+	[0x0002] = "Composite Temperature increases to reach CCTEMP",
+};
+
+static const char * const media_event_id_str[] = {
+	[0x0000] = "XOR (or equivalent) Recovery Invoked",
+	[0x0001] = "Uncorrectable Media Error",
+	[0x0002] = "Block Marked Bad Due to Program Error",
+	[0x0003] = "Block Marked Bad Due to Erase Error",
+	[0x0004] = "Block Marked Bad Due to Read Error",
+	[0x0005] = "Plane Failure Event",
+};
+
+static const char * const media_wear_event_id_str[] = {
+	[0x0000] = "Media Wear",
+};
+
+static const char * const virtual_fifo_event_id_str[] = {
+	[0x0000] = "Virtual FIFO Start",
+	[0x0001] = "Virtual FIFO End",
+};
+
+static const char * const smbus_event_id_str[] = {
+	[0x0000] = "Timeout Errors",
+	[0x0001] = "PEC Errors",
+	[0x0002] = "Arbitration loss",
+	[0x0003] = "NACK error",
+};
+
+static const char * const mctp_event_id_str[] = {
+	[0x0000] = "Dropped Packet",
+	[0x0001] = "Dropped Message",
+	[0x0002] = "Discovery and addressing errors",
+	[0x0003] = "Error Status",
+};
+
+#define EVENT_IDS(t) { t, ARRAY_SIZE(t) }
+
+static const struct {
+	const char * const *str;
+	size_t count;
+} spec_event_id_str[] = {
+	[TIME_STAMP_CLASS_TYPE] = EVENT_IDS(timestamp_event_id_str),
+	[PCIE_CLASS_TYPE] = EVENT_IDS(pcie_event_id_str),
+	[NVME_CLASS_TYPE] = EVENT_IDS(nvme_event_id_str),
+	[RESET_CLASS_TYPE] = EVENT_IDS(reset_event_id_str),
+	[BOOT_SEQUENCE_CLASS_TYPE] = EVENT_IDS(boot_sequence_event_id_str),
+	[FIRMWARE_ASSERT_CLASS_TYPE] = EVENT_IDS(firmware_assert_event_id_str),
+	[TEMPERATURE_CLASS_TYPE] = EVENT_IDS(temperature_event_id_str),
+	[MEDIA_CLASS_TYPE] = EVENT_IDS(media_event_id_str),
+	[MEDIA_WEAR_CLASS_TYPE] = EVENT_IDS(media_wear_event_id_str),
+	[VIRTUAL_FIFO_EVENT_CLASS_TYPE] = EVENT_IDS(virtual_fifo_event_id_str),
+	[SMBUS_I2C_I3C_EVENT_CLASS_TYPE] = EVENT_IDS(smbus_event_id_str),
+	[MCTP_EVENT_CLASS_TYPE] = EVENT_IDS(mctp_event_id_str),
 };
 
 struct request_data host_log_page_header[] = {
@@ -317,7 +438,7 @@ void json_add_formatted_u32_str(struct json_object *pobject, const char *msg, un
 {
 	char data_str[70] = { 0 };
 
-	sprintf(data_str, "0x%x", pdata);
+	snprintf(data_str, sizeof(data_str), "0x%x", pdata);
 	json_object_add_value_string(pobject, msg, data_str);
 }
 
@@ -325,19 +446,16 @@ void json_add_formatted_var_size_str(struct json_object *pobject, const char *ms
 	unsigned int data_size)
 {
 	char *description_str = NULL;
-	char temp_buffer[3] = { 0 };
+	size_t size = data_size * 2 + 1;
 
-	/* Allocate 2 chars for each value in the data + 2 bytes for the null terminator */
-	description_str = (char *) calloc(1, data_size*2 + 2);
+	/* 2 chars for each value in the data and the null terminator */
+	description_str = (char *) calloc(1, size);
 	if (!description_str) {
 		nvme_show_error("Failed to allocate description buffer");
 		return;
 	}
 
-	for (size_t i = 0; i < data_size; ++i) {
-		sprintf(temp_buffer, "%02X", pdata[i]);
-		strcat(description_str, temp_buffer);
-	}
+	shr_bin_to_hex(description_str, size, pdata, data_size, SHR_HEX_UPPER);
 
 	json_object_add_value_string(pobject, msg, description_str);
 	free(description_str);
@@ -468,7 +586,9 @@ int get_statistic_id_ascii_string(int identifier, char *description)
 	// If ASCII string isn't found, see in our internal Map
 	// for 2.5 Spec defined strings
 	if (identifier <= 0x6F) {
-		strcpy(description, statistic_identifiers_map[identifier].description);
+		shr_strscpy(description,
+			    statistic_identifiers_map[identifier].description,
+			    OCP_TELEMETRY_DESCRIPTION_MAX);
 		return 0;
 	}
 
@@ -499,6 +619,25 @@ static int ocp_event_ascii_string(__le64 start, __le64 size, int identifier,
 	return -1;
 }
 
+static int ocp_spec_event_id_string(int identifier, int debug_event_class,
+				    char *description)
+{
+	const char *str;
+
+	if (debug_event_class < 0 ||
+	    debug_event_class >= (int)ARRAY_SIZE(spec_event_id_str) ||
+	    identifier < 0 ||
+	    identifier >= (int)spec_event_id_str[debug_event_class].count)
+		return -1;
+
+	str = spec_event_id_str[debug_event_class].str[identifier];
+	if (!str)
+		return -1;
+
+	shr_strscpy(description, str, OCP_TELEMETRY_DESCRIPTION_MAX);
+	return 0;
+}
+
 int get_event_id_ascii_string(int identifier, int debug_event_class, char *description)
 {
 	struct nvme_ocp_telemetry_string_header *pocp_ts_header =
@@ -507,8 +646,13 @@ int get_event_id_ascii_string(int identifier, int debug_event_class, char *descr
 	if (!pstring_buffer)
 		return -1;
 
-	return ocp_event_ascii_string(pocp_ts_header->ests, pocp_ts_header->estsz, identifier,
-				      debug_event_class, description);
+	if (!ocp_event_ascii_string(pocp_ts_header->ests, pocp_ts_header->estsz,
+				    identifier, debug_event_class, description))
+		return 0;
+
+	/* TELSLG-14: the String Log may omit Event IDs the spec defines. */
+	return ocp_spec_event_id_string(identifier, debug_event_class,
+					description);
 }
 
 int get_vu_event_id_ascii_string(int identifier, int debug_event_class, char *description)
@@ -1194,7 +1338,8 @@ int parse_event_fifo(unsigned int fifo_num, unsigned char *pfifo_start,
 	else {
 		char buffer[1024] = {0};
 
-		sprintf(buffer, "%s%s\n%s", STR_LINE, event_fifo_name, STR_LINE);
+		snprintf(buffer, sizeof(buffer), "%s%s\n%s", STR_LINE,
+			 event_fifo_name, STR_LINE);
 		if (fp)
 			fprintf(fp, "%s", buffer);
 		else
@@ -1952,7 +2097,8 @@ int print_ocp_telemetry_normal(struct ocp_telemetry_parse_options *options)
 	}
 
 	if (options->output_file != NULL) {
-		sprintf(file_path, "%s.%s", options->output_file, "txt");
+		snprintf(file_path, sizeof(file_path), "%s.%s",
+			 options->output_file, "txt");
 		fp = fopen(file_path, "w");
 		if (!fp) {
 			nvme_show_error("Failed to open %s file.", file_path);
@@ -2194,7 +2340,8 @@ int print_ocp_telemetry_json(struct ocp_telemetry_parse_options *options)
 
 	if (options->output_file != NULL) {
 		const char *json_string = json_object_to_json_string(root);
-		sprintf(file_path, "%s.%s", options->output_file, "json");
+		snprintf(file_path, sizeof(file_path), "%s.%s",
+			 options->output_file, "json");
 		FILE *fp = fopen(file_path, "w");
 
 		if (fp) {

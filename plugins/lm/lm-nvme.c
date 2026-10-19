@@ -72,11 +72,13 @@ static int lm_create_cdq(int argc, char **argv, struct command *acmd, struct plu
 		.file = NULL,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("size",	's', &cfg.sz,		sz),
-		OPT_SHRT("cntlid",	'c', &cfg.cntlid,	cntlid),
-		OPT_BYTE("queue-type",	'q', &cfg.qt,		qt),
-		OPT_FLAG("consent",	  0, &cfg.consent,	consent));
+	OPT_ARGS(opts) = {
+		OPT_UINT("size",       's', &cfg.sz,      sz),
+		OPT_SHRT("cntlid",     'c', &cfg.cntlid,  cntlid),
+		OPT_BYTE("queue-type", 'q', &cfg.qt,      qt),
+		OPT_FLAG("consent",    0,   &cfg.consent, consent),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -128,8 +130,10 @@ static int lm_delete_cdq(int argc, char **argv, struct command *acmd, struct plu
 		.cdqid = 0
 	};
 
-	NVME_ARGS(opts,
-		OPT_SHRT("cdqid", 'C', &cfg.cdqid, cdqid));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("cdqid", 'C', &cfg.cdqid, cdqid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -171,7 +175,7 @@ static int lm_track_send(int argc, char **argv, struct command *acmd, struct plu
 	int err = -1;
 
 	struct config {
-		__s8  sel;
+		__u8  sel;
 		__u8  mos;
 		__u16 cdqid;
 		bool  start;
@@ -179,25 +183,27 @@ static int lm_track_send(int argc, char **argv, struct command *acmd, struct plu
 	};
 
 	struct config cfg = {
-		.sel = -1,
+		.sel = 0,
 		.mos = 0,
 		.cdqid = 0,
 		.start = false,
 		.stop = false,
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel",		's', &cfg.sel,   sel),
-		OPT_BYTE("mos",		'm', &cfg.mos,   mos),
-		OPT_SHRT("cdqid",	'C', &cfg.cdqid, cdqid),
-		OPT_FLAG("start",	  0, &cfg.start, start),
-		OPT_FLAG("stop",	  0, &cfg.stop,  stop));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel",   's', &cfg.sel,   sel),
+		OPT_BYTE("mos",   'm', &cfg.mos,   mos),
+		OPT_SHRT("cdqid", 'C', &cfg.cdqid, cdqid),
+		OPT_FLAG("start", 0,   &cfg.start, start),
+		OPT_FLAG("stop",  0,   &cfg.stop,  stop),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	if (cfg.sel == -1) {
+	if (!argconfig_given(opts, &cfg.sel)) {
 		nvme_show_error("Select field required");
 		return -EINVAL;
 	}
@@ -272,7 +278,7 @@ static int lm_migration_send(int argc, char **argv, struct command *acmd, struct
 	int err = -1;
 
 	struct config {
-		__s8 sel;
+		__u8 sel;
 		__u16 cntlid;
 		__u8 stype;
 		__u8 seqind;
@@ -286,7 +292,7 @@ static int lm_migration_send(int argc, char **argv, struct command *acmd, struct
 	};
 
 	struct config cfg = {
-		.sel = -1,
+		.sel = 0,
 		.cntlid = 0,
 		.stype = 0,
 		.seqind = 0,
@@ -299,24 +305,26 @@ static int lm_migration_send(int argc, char **argv, struct command *acmd, struct
 		.dudmq = false
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel",		's', &cfg.sel, sel),
-		OPT_SHRT("cntlid",	'c', &cfg.cntlid, cntlid),
-		OPT_BYTE("stype",	't', &cfg.stype, stype),
-		OPT_FLAG("dudmq",	'd', &cfg.dudmq, dudmq),
-		OPT_BYTE("seq-ind",	'S', &cfg.seqind, seqind),
-		OPT_BYTE("csuuidi",	'U', &cfg.csuuidi, csuuidi),
-		OPT_BYTE("csvi",	'V', &cfg.csvi, csvi),
-		OPT_BYTE("uidx",	'u', &cfg.uidx, uidx),
-		OPT_LONG("offset",	'O', &cfg.offset, offset),
-		OPT_UINT("numd",	'n', &cfg.numd, numd),
-		OPT_FILE("input-file",	'f', &cfg.input, input));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel",        's', &cfg.sel,     sel),
+		OPT_SHRT("cntlid",     'c', &cfg.cntlid,  cntlid),
+		OPT_BYTE("stype",      't', &cfg.stype,   stype),
+		OPT_FLAG("dudmq",      'd', &cfg.dudmq,   dudmq),
+		OPT_BYTE("seq-ind",    'S', &cfg.seqind,  seqind),
+		OPT_BYTE("csuuidi",    'U', &cfg.csuuidi, csuuidi),
+		OPT_BYTE("csvi",       'V', &cfg.csvi,    csvi),
+		OPT_BYTE("uidx",       'u', &cfg.uidx,    uidx),
+		OPT_LONG("offset",     'O', &cfg.offset,  offset),
+		OPT_UINT("numd",       'n', &cfg.numd,    numd),
+		OPT_FILE("input-file", 'f', &cfg.input,   input),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	if (cfg.sel == -1) {
+	if (!argconfig_given(opts, &cfg.sel)) {
 		nvme_show_error("Select field required");
 		return -EINVAL;
 	}
@@ -391,7 +399,6 @@ static int lm_migration_recv(int argc, char **argv, struct command *acmd, struct
 	const char *offset = "Controller State Offset";
 	const char *numd = "Number of Dwords (NUMD)";
 	const char *output = "Controller State Data output file";
-	const char *human_readable_info = "show info in readable format";
 
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
@@ -412,11 +419,10 @@ static int lm_migration_recv(int argc, char **argv, struct command *acmd, struct
 		__u64 offset;
 		__u32 numd;
 		char  *output;
-		bool  human_readable;
 	};
 
 	struct config cfg = {
-		.sel = -1,
+		.sel = 0,
 		.cntlid = 0,
 		.csuuidi = 0,
 		.csvi = 0,
@@ -424,36 +430,37 @@ static int lm_migration_recv(int argc, char **argv, struct command *acmd, struct
 		.offset = 0,
 		.numd = 0,
 		.output = NULL,
-		.human_readable = false
 	};
 
-	NVME_ARGS(opts,
-		OPT_BYTE("sel",			's', &cfg.sel, sel),
-		OPT_SHRT("cntlid",		'c', &cfg.cntlid, cntlid),
-		OPT_BYTE("csuuidi",		'U', &cfg.csuuidi, csuuidi),
-		OPT_BYTE("csvi",		'V', &cfg.csvi, csvi),
-		OPT_BYTE("uidx",		'u', &cfg.uidx, uidx),
-		OPT_LONG("offset",		'O', &cfg.offset, offset),
-		OPT_UINT("numd",		'n', &cfg.numd, numd),
-		OPT_FILE("output-file",		'f', &cfg.output, output),
-		OPT_FLAG("human-readable",	'H', &cfg.human_readable, human_readable_info));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("sel",         's', &cfg.sel,     sel),
+		OPT_SHRT("cntlid",      'c', &cfg.cntlid,  cntlid),
+		OPT_BYTE("csuuidi",     'U', &cfg.csuuidi, csuuidi),
+		OPT_BYTE("csvi",        'V', &cfg.csvi,    csvi),
+		OPT_BYTE("uidx",        'u', &cfg.uidx,    uidx),
+		OPT_LONG("offset",      'O', &cfg.offset,  offset),
+		OPT_UINT("numd",        'n', &cfg.numd,    numd),
+		OPT_FILE("output-file", 'f', &cfg.output,  output),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
+	if (!argconfig_given(opts, &cfg.sel)) {
+		nvme_show_error("Select field required");
+		return -EINVAL;
 	}
+
+	flags = nvme_args.output_flags;
 
 	if (nvme_args.output_format && cfg.offset != 0 && !(flags & BINARY)) {
 		nvme_show_error("cannot parse non-zero offset");
 		return -EINVAL;
 	}
 
-	if (cfg.human_readable)
+	if (nvme_args.verbose)
 		flags |= VERBOSE;
 
 	if (cfg.output && strlen(cfg.output)) {
@@ -519,26 +526,29 @@ static int lm_set_cdq(int argc, char **argv, struct command *acmd, struct plugin
 	struct config {
 		__u16 cdqid;
 		__u32 hp;
-		__s32 tpt;
+		__u32 tpt;
 	};
 
 	struct config cfg = {
 		.cdqid = 0,
 		.hp = 0,
-		.tpt = -1,
+		.tpt = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_SHRT("cdqid",	'C', &cfg.cdqid, cdqid),
-		OPT_UINT("hp",		'H', &cfg.hp, hp),
-		OPT_UINT("tpt",		'T', &cfg.tpt, tpt));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("cdqid", 'C', &cfg.cdqid, cdqid),
+		OPT_UINT("hp",    0,   &cfg.hp,    hp),
+		OPT_UINT("tpt",   'T', &cfg.tpt,   tpt),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
 	err = nvme_set_features(hdl, 0, lm_cdq_feature_id, 0, cfg.cdqid |
-			((cfg.tpt >= 0) ? NVME_SET(1, LM_CTRL_DATA_QUEUE_ETPT) : 0),
+			(argconfig_given(opts, &cfg.tpt) ?
+			 NVME_SET(1, LM_CTRL_DATA_QUEUE_ETPT) : 0),
 			cfg.hp, cfg.tpt, 0, 0, NULL, 0, NULL);
 	if (err < 0)
 		nvme_show_error("ERROR: nvme_set_features() failed %s", libnvme_strerror(errno));
@@ -569,18 +579,16 @@ static int lm_get_cdq(int argc, char **argv, struct command *acmd, struct plugin
 		.cdqid = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_SHRT("cdqid",	 'C', &cfg.cdqid,	  cdqid));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("cdqid", 'C', &cfg.cdqid, cdqid),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	struct nvme_lm_ctrl_data_queue_fid_data data;
 

@@ -113,6 +113,96 @@ static bool test_unknown_key_ignored(void)
 	return pass;
 }
 
+static bool test_value_names(void)
+{
+	char *path = write_temp(
+		"[Global]\n"
+		"timeout = infinite\n");
+	bool pass = true;
+
+	printf("test_value_names:\n");
+
+	nvme_args.timeout = 5000;
+	nvme_load_global_config_from(path);
+	unlink(path);
+	free(path);
+
+	/* The names the command line takes work in the file too */
+	if (nvme_args.timeout != UINT32_MAX) {
+		printf(" - timeout = infinite [FAIL]\n");
+		pass = false;
+	} else {
+		printf(" - timeout = infinite [PASS]\n");
+	}
+
+	return pass;
+}
+
+static bool test_strict_numbers_and_buf(void)
+{
+	bool pass = true;
+
+	printf("test_strict_numbers_and_buf:\n");
+
+	nvme_args.timeout = 42;
+	nvme_load_global_config_buf("[Global]\ntimeout = +5\n", "buf");
+	if (nvme_args.timeout != 42) {
+		printf(" - '+5' rejected [FAIL]\n");
+		pass = false;
+	} else {
+		printf(" - '+5' rejected [PASS]\n");
+	}
+
+	nvme_load_global_config_buf("[Global]\ntimeout = 0x10\n", "buf");
+	if (nvme_args.timeout != 16) {
+		printf(" - '0x10' taken from a buffer [FAIL]\n");
+		pass = false;
+	} else {
+		printf(" - '0x10' taken from a buffer [PASS]\n");
+	}
+
+	nvme_args.timeout = 42;
+	nvme_load_global_config_buf("[Global]\ntimeout = 010\n", "buf");
+	if (nvme_args.timeout != 42) {
+		printf(" - '010' rejected [FAIL]\n");
+		pass = false;
+	} else {
+		printf(" - '010' rejected [PASS]\n");
+	}
+
+	nvme_args.output_format_ver = 2;
+	nvme_load_global_config_buf("[Global]\noutput-format-version = 3\n",
+				    "buf");
+	if (nvme_args.output_format_ver != 2) {
+		printf(" - '3' out of range rejected [FAIL]\n");
+		pass = false;
+	} else {
+		printf(" - '3' out of range rejected [PASS]\n");
+	}
+
+	return pass;
+}
+
+static bool test_repeated_string(void)
+{
+	bool pass = true;
+
+	printf("test_repeated_string:\n");
+
+	nvme_load_global_config_buf("[Global]\noutput-format = json\n"
+				    "output-format = binary\n", "buf");
+	if (strcmp(nvme_args.output_format, "binary")) {
+		printf(" - the last value counts [FAIL]\n");
+		pass = false;
+	} else {
+		printf(" - the last value counts [PASS]\n");
+	}
+	nvme_global_config_free();
+	nvme_args.output_format = "normal";
+
+	return pass;
+}
+
 static bool test_malformed_value_skipped(void)
 {
 	char *path;
@@ -135,6 +225,37 @@ static bool test_malformed_value_skipped(void)
 		pass = false;
 	} else {
 		printf(" - bad uint value left field untouched [PASS]\n");
+	}
+
+	return pass;
+}
+
+/*
+ * The keys are the global options the help shows; the hidden
+ * human-readable is none. A verbose count beyond INT_MAX is rejected.
+ */
+static bool test_hidden_and_out_of_range(void)
+{
+	char *path;
+	bool pass = true;
+
+	nvme_args.verbose = 1;
+	path = write_temp(
+		"[Global]\n"
+		"human-readable = 5\n"
+		"verbose = 4294967295\n");
+
+	printf("test_hidden_and_out_of_range:\n");
+
+	nvme_load_global_config_from(path);
+	unlink(path);
+	free(path);
+
+	if (nvme_args.verbose != 1) {
+		printf(" - hidden key and huge verbose ignored [FAIL]\n");
+		pass = false;
+	} else {
+		printf(" - hidden key and huge verbose ignored [PASS]\n");
 	}
 
 	return pass;
@@ -191,9 +312,15 @@ int main(void)
 {
 	bool pass = true;
 
+	nvme_args_register();
+
 	pass &= test_valid_keys();
 	pass &= test_unknown_key_ignored();
+	pass &= test_value_names();
+	pass &= test_strict_numbers_and_buf();
+	pass &= test_repeated_string();
 	pass &= test_malformed_value_skipped();
+	pass &= test_hidden_and_out_of_range();
 	pass &= test_keys_outside_global_ignored();
 	pass &= test_missing_file_is_noop();
 

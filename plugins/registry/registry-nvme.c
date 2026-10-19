@@ -37,10 +37,10 @@ static char *get_device(int argc, char **argv)
 {
 	char *device;
 
-	if (optind >= argc)
+	if (!nvme_args.device)
 		return NULL;
 
-	device = argv[optind];
+	device = nvme_args.device;
 	strip_dev_prefix(&device);
 	return device;
 }
@@ -87,7 +87,9 @@ static int registry_list(int argc, char **argv, struct command *acmd,
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	int ret;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	if (parse_args(argc, argv, desc, opts))
 		return -EINVAL;
@@ -115,8 +117,10 @@ static int registry_retrieve(int argc, char **argv, struct command *acmd,
 
 	struct config cfg = { 0 };
 
-	NVME_ARGS(opts,
-		OPT_STRING("attr", 'a', "ATTR", &cfg.attr, attr_help));
+	OPT_ARGS(opts) = {
+		OPT_STRING("attr", 'a', "ATTR", &cfg.attr, attr_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -167,9 +171,11 @@ static int registry_update(int argc, char **argv, struct command *acmd,
 
 	struct config cfg = { 0 };
 
-	NVME_ARGS(opts,
+	OPT_ARGS(opts) = {
 		OPT_STRING("attr",  'a', "ATTR", &cfg.attr,  attr_help),
-		OPT_STRING("value", 'V', "VAL",  &cfg.value, value_help));
+		OPT_STRING("value", 'V', "VAL",  &cfg.value, value_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -215,8 +221,10 @@ static int registry_delete(int argc, char **argv, struct command *acmd,
 
 	struct config cfg = { 0 };
 
-	NVME_ARGS(opts,
-		OPT_STRING("attr", 'a', "ATTR", &cfg.attr, attr_help));
+	OPT_ARGS(opts) = {
+		OPT_STRING("attr", 'a', "ATTR", &cfg.attr, attr_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -256,7 +264,7 @@ static struct command registry_list_cmd = {
 	.name = "list",
 	.help = "List live registry entries",
 	.fn = registry_list,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command registry_retrieve_cmd = {

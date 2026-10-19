@@ -69,11 +69,13 @@ static int virtual_mgmt(int argc, char **argv, struct command *acmd, struct plug
 		.nr	= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_SHRT("cntlid", 'c', &cfg.cntlid, cntlid),
-		  OPT_BYTE("rt",     'r', &cfg.rt,     rt),
-		  OPT_BYTE("act",    'a', &cfg.act,    act),
-		  OPT_SHRT("nr",     'n', &cfg.nr,     nr));
+	OPT_ARGS(opts) = {
+		OPT_SHRT("cntlid", 'c', &cfg.cntlid, cntlid),
+		OPT_BYTE("rt",     'r', &cfg.rt,     rt),
+		OPT_BYTE("act",    'a', &cfg.act,    act),
+		OPT_SHRT("nr",     'n', &cfg.nr,     nr),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -101,7 +103,9 @@ static int subsystem_reset(int argc, char **argv, struct command *acmd, struct p
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -134,7 +138,9 @@ static int reset(int argc, char **argv, struct command *acmd, struct plugin *plu
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -162,9 +168,10 @@ static int ns_rescan(int argc, char **argv, struct command *acmd, struct plugin 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	int err;
-	nvme_print_flags_t flags;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -173,12 +180,6 @@ static int ns_rescan(int argc, char **argv, struct command *acmd, struct plugin 
 	if (!libnvme_transport_handle_is_ctrl(hdl)) {
 		nvme_show_error(only_ctrl_dev);
 		return -EINVAL;
-	}
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
 	}
 
 	err = libnvme_rescan_ns(hdl);

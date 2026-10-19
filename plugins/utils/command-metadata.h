@@ -24,10 +24,13 @@ struct command_metadata_option {
 	char short_option;		/* 0 if none */
 	const char *meta;		/* metavar / value placeholder ("NUM"/"FMT"/...) or NULL */
 	enum argconfig_types config_type;
-	int argument_type;		/* no_/required_/optional_argument */
+	enum argconfig_argument argument_type;
 	const char *help;
 	const struct argconfig_opt_val *opt_val; /* NULL or .str==NULL terminated */
 	bool hidden;			/* not shown in help/completion */
+	const char *deprecated;		/* the replacement, or NULL */
+	const char *old_name;		/* the long name it replaced, or NULL */
+	uint64_t min, max;		/* the range of a number, if max */
 };
 
 struct command_metadata_command {
@@ -37,6 +40,11 @@ struct command_metadata_command {
 	struct command_metadata_option *options;	/* heap array */
 	size_t num_options;
 	bool captured;			/* hook fired -> options valid */
+	int device;			/* enum command_device */
+	bool deprecated;
+	/* "nvme <plugin> <command>" which replaces it, or NULL */
+	const char *replacement_plugin;
+	const char *replacement_command;
 };
 
 struct command_metadata_plugin {

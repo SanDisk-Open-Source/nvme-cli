@@ -8,6 +8,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include <ccan/build_assert/build_assert.h>
 
@@ -24,6 +25,39 @@ typedef unsigned __int128 uint128_t;
  * Return: 0 on success (*out set), -EINVAL if value matches neither list.
  */
 int shr_parse_bool(const char *value, bool *out);
+
+/*
+ * True if the number @s starts with a 0 followed by another digit, such
+ * as "010". strtoull() with base 0 reads it as octal, which hardly anyone
+ * means, so the number parsers reject it.
+ */
+bool shr_has_leading_zero(const char *s);
+
+/*
+ * Parse the whole string @s as an unsigned number: decimal, or hexadecimal
+ * with a 0x prefix, like strtoull() with base 0, but no octal (see
+ * shr_has_leading_zero()), no whitespace, no sign and nothing after the
+ * digits.
+ * Return: 0 on success (*out set), -EINVAL if @s is no number, -ERANGE if
+ * it is larger than @max.
+ */
+int shr_parse_u64(const char *s, uint64_t max, uint64_t *out);
+
+/*
+ * The same for a signed number, with an optional '-' in front.
+ * Return: 0 on success (*out set), -EINVAL if @s is no number, -ERANGE if
+ * it is outside of @min and @max.
+ */
+int shr_parse_s64(const char *s, int64_t min, int64_t max, int64_t *out);
+
+/*
+ * Parse the whole string @s as a finite floating point number with a '.'
+ * as decimal point, whatever the locale: no whitespace, no nan or inf and
+ * nothing after the number.
+ * Return: 0 on success (*out set), -EINVAL if @s is no such number,
+ * -ERANGE if it is too large.
+ */
+int shr_parse_double(const char *s, double *out);
 
 /*
  * Parse a comma-separated list of numbers from string (modified in place by

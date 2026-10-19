@@ -337,6 +337,35 @@ const char *nvme_nss_hw_error_to_string(__u16 error_code)
  * of the event data, zero padded to the largest event structure, or NULL.
  * The caller frees the copy.
  */
+/*
+ * The event at offset of a Persistent Event log of size bytes, or NULL if
+ * there is no complete event: its header must hold all header fields, its
+ * vendor specific information must fit into the event, and the event into
+ * the log.
+ */
+struct nvme_persistent_event_entry *nvme_pel_event(void *pevent_log_info,
+		__u32 size, __u32 offset)
+{
+	struct nvme_persistent_event_entry *e;
+	__u64 len;
+
+	if ((__u64)offset + sizeof(*e) > size)
+		return NULL;
+
+	e = pevent_log_info + offset;
+	/* The Event Header Length does not count the first 3 bytes */
+	if (e->ehl + 3 < sizeof(*e))
+		return NULL;
+	if (le16_to_cpu(e->vsil) > le16_to_cpu(e->el))
+		return NULL;
+
+	len = (__u64)e->ehl + 3 + le16_to_cpu(e->el);
+	if (offset + len > size)
+		return NULL;
+
+	return e;
+}
+
 void *nvme_pel_event_data(void *pevent_log_info, __u32 offset, __u32 len,
 		__u32 *buf_len)
 {
@@ -419,9 +448,10 @@ void nvme_show_phy_rx_eom_log(struct nvme_phy_rx_eom_log *log, __u16 controller,
 }
 
 void nvme_show_media_unit_stat_log(struct nvme_media_unit_stat_log *mus_log,
+	size_t len,
 				   nvme_print_flags_t flags)
 {
-	nvme_print(media_unit_stat_log, flags, mus_log);
+	nvme_print(media_unit_stat_log, flags, mus_log, len);
 }
 
 void nvme_show_fdp_configs(struct nvme_fdp_config_log *log, size_t len,
@@ -1968,9 +1998,9 @@ void nvme_show_rotational_media_info_log(struct nvme_rotational_media_info_log *
 }
 
 void nvme_show_dispersed_ns_psub_log(struct nvme_dispersed_ns_participating_nss_log *log,
-				     nvme_print_flags_t flags)
+				     __u64 len, nvme_print_flags_t flags)
 {
-	nvme_print(dispersed_ns_psub_log, flags, log);
+	nvme_print(dispersed_ns_psub_log, flags, log, len);
 }
 
 void nvme_show_reachability_groups_log(struct nvme_reachability_groups_log *log,
@@ -1986,21 +2016,21 @@ void nvme_show_reachability_associations_log(struct nvme_reachability_associatio
 }
 
 void nvme_show_host_discovery_log(struct nvme_host_discovery_log *log,
-		nvme_print_flags_t flags)
+		__u64 len, nvme_print_flags_t flags)
 {
-	nvme_print(host_discovery_log, flags, log);
+	nvme_print(host_discovery_log, flags, log, len);
 }
 
 void nvme_show_ave_discovery_log(struct nvme_ave_discovery_log *log,
-		nvme_print_flags_t flags)
+		__u64 len, nvme_print_flags_t flags)
 {
-	nvme_print(ave_discovery_log, flags, log);
+	nvme_print(ave_discovery_log, flags, log, len);
 }
 
 void nvme_show_pull_model_ddc_req_log(struct nvme_pull_model_ddc_req_log *log,
-				      nvme_print_flags_t flags)
+				      __u64 len, nvme_print_flags_t flags)
 {
-	nvme_print(pull_model_ddc_req_log, flags, log);
+	nvme_print(pull_model_ddc_req_log, flags, log, len);
 }
 
 void nvme_show_log(const char *devname, enum nvme_cmd_get_log_lid lid, __u32 nsid, __u16 lsi,
@@ -2060,7 +2090,7 @@ void nvme_show_log(const char *devname, enum nvme_cmd_get_log_lid lid, __u32 nsi
 		break;
 	}
 	case NVME_LOG_LID_MEDIA_UNIT_STATUS:
-		nvme_show_media_unit_stat_log(log, flags);
+		nvme_show_media_unit_stat_log(log, len, flags);
 		break;
 	case NVME_LOG_LID_SUPPORTED_CAP_CONFIG_LIST:
 		nvme_show_supported_cap_config_log(log, len, flags);
@@ -2080,7 +2110,7 @@ void nvme_show_log(const char *devname, enum nvme_cmd_get_log_lid lid, __u32 nsi
 		nvme_show_rotational_media_info_log(log, flags);
 		break;
 	case NVME_LOG_LID_DISPERSED_NS_PARTICIPATING_NSS:
-		nvme_show_dispersed_ns_psub_log(log, flags);
+		nvme_show_dispersed_ns_psub_log(log, len, flags);
 		break;
 	case NVME_LOG_LID_MGMT_ADDR_LIST:
 		nvme_show_mgmt_addr_list_log(log, flags);
@@ -2116,13 +2146,13 @@ void nvme_show_log(const char *devname, enum nvme_cmd_get_log_lid lid, __u32 nsi
 		break;
 	}
 	case NVME_LOG_LID_HOST_DISCOVERY:
-		nvme_show_host_discovery_log(log, flags);
+		nvme_show_host_discovery_log(log, len, flags);
 		break;
 	case NVME_LOG_LID_AVE_DISCOVERY:
-		nvme_show_ave_discovery_log(log, flags);
+		nvme_show_ave_discovery_log(log, len, flags);
 		break;
 	case NVME_LOG_LID_PULL_MODEL_DDC_REQ:
-		nvme_show_pull_model_ddc_req_log(log, flags);
+		nvme_show_pull_model_ddc_req_log(log, len, flags);
 		break;
 	case NVME_LOG_LID_POWER_MEASUREMENT:
 		nvme_show_power_meas_log(log, len, flags);

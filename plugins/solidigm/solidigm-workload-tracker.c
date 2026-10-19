@@ -14,6 +14,7 @@
 #include <ccan/array_size/array_size.h>
 #include <ccan/endian/endian.h>
 #include <ccan/minmax/minmax.h>
+#include <shared/string-util.h>
 
 #include "cleanup.h"
 #include "global-ctx.h"
@@ -473,10 +474,10 @@ static int find_option(char const *list[], int size, const char *val)
 
 static void join_options(char *dest, size_t dest_size, char const *list[], size_t list_size)
 {
-	strncat(dest, list[0], dest_size - strlen(dest) - 1);
+	shr_strscpy(dest, list[0], dest_size);
 	for (int i = 1; i < list_size; i++) {
-		strncat(dest, "|", dest_size - strlen(dest) - 1);
-		strncat(dest, list[i], dest_size - strlen(dest) - 1);
+		shr_strscat(dest, "|", dest_size);
+		shr_strscat(dest, list[i], dest_size);
 	}
 }
 
@@ -489,15 +490,15 @@ static int find_field(struct field *fields, const char *val)
 	return -EINVAL;
 }
 
-static void join_fields(char *dest, struct field *fields)
+static void join_fields(char *dest, size_t dest_size, struct field *fields)
 {
-	strcat(dest, fields[0].name);
+	shr_strscpy(dest, fields[0].name, dest_size);
 	for (int i = 1; i < MAX_FIELDS; i++) {
 		char *name = fields[i].name;
 
 		if (name) {
-			strcat(dest, "|");
-			strcat(dest, name);
+			shr_strscat(dest, "|", dest_size);
+			shr_strscat(dest, name, dest_size);
 		}
 	}
 }
@@ -543,23 +544,30 @@ int sldgm_get_workload_tracker(int argc, char **argv, struct command *acmd, stru
 	join_options(type_options, sizeof(type_options), trk_types, ARRAY_SIZE(trk_types));
 	join_options(sample_options, sizeof(sample_options), samplet, ARRAY_SIZE(samplet));
 
-	NVME_ARGS(opts,
-		OPT_BYTE("uuid-index",   'U', &wlt.uuid_index, "specify uuid index"),
-		OPT_FLAG("enable", 'e', &cfg.enable, "tracker enable"),
-		OPT_FLAG("disable", 'd', &cfg.disable, "tracker disable"),
-		OPT_STRING("sample-time", 's', sample_options, &cfg.sample_time, sample_interval),
-		OPT_STRING("type", 't', type_options, &cfg.tracker_type, "Tracker type"),
-		OPT_UINT("run-time", 'r', &cfg.run_time_s, run_time),
-		OPT_INT("flush-freq", 'f', &cfg.flush_frequency, flush_frequency),
+	OPT_ARGS(opts) = {
+		OPT_BYTE("uuid-index", 'U', &wlt.uuid_index,
+			 "specify uuid index"),
+		OPT_FLAG("enable",     'e', &cfg.enable,     "tracker enable"),
+		OPT_FLAG("disable",    'd', &cfg.disable,    "tracker disable"),
+		OPT_STRING("sample-time", 's', sample_options, &cfg.sample_time,
+			   sample_interval),
+		OPT_STRING("type", 't', type_options, &cfg.tracker_type,
+			   "Tracker type"),
+		OPT_UINT("run-time",   'r', &cfg.run_time_s, run_time),
+		OPT_INT("flush-freq", 'f', &cfg.flush_frequency,
+			flush_frequency),
 		OPT_FLAG("wall-clock", 'w', &wlt.show_wall_timestamp,
 			 "Logs current wall timestamp when entry was retrieved"),
-		OPT_STR("trigger-field", 'T', &cfg.trigger_field, "Field name to stop trigger on"),
+		OPT_STR("trigger-field", 'T', &cfg.trigger_field,
+			"Field name to stop trigger on"),
 		OPT_UINT("trigger-threshold", 'V', &cfg.trigger_treshold,
 			 "Field value to trigger stop sampling"),
 		OPT_FLAG("trigger-on-delta", 'D', &cfg.trigger_on_delta,
 			 "Trigger on delta to stop sampling"),
 		OPT_FLAG("trigger-on-latency", 'L', &cfg.trigger_on_latency,
-			 "Use latency tracker to trigger stop sampling"));
+			 "Use latency tracker to trigger stop sampling"),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -593,14 +601,15 @@ int sldgm_get_workload_tracker(int argc, char **argv, struct command *acmd, stru
 		return -EINVAL;
 	}
 	we.contentGroup = opt;
-	if (argconfig_parse_seen(opts, "trigger-field")) {
+	if (argconfig_given(opts, &cfg.trigger_field)) {
 		int field_pos = find_field(group_fields[opt], cfg.trigger_field);
 		int field_offset = 0;
 
 		if (field_pos < 0) {
 			char field_options[256];
 
-			join_fields(field_options, group_fields[opt]);
+			join_fields(field_options, sizeof(field_options),
+				    group_fields[opt]);
 			nvme_show_error(
 				"Invalid field name: %s. For type: \"%s\", valid fields are: %s",
 				 cfg.trigger_field, cfg.tracker_type, field_options);

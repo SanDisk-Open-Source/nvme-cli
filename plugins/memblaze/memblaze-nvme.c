@@ -12,6 +12,7 @@
 #include <ccan/endian/endian.h>
 #include <ccan/minmax/minmax.h>
 #include <shared/compiler-attributes-util.h>
+#include <shared/string-util.h>
 
 #include "cleanup.h"
 #include "global-ctx.h"
@@ -224,8 +225,7 @@ static void show_memblaze_smart_log_old(struct nvme_memblaze_smart_log *smart,
 	char fw_ver_local[STR_VER_SIZE + 1];
 	struct nvme_memblaze_smart_log_item *item;
 
-	strncpy(fw_ver_local, fw_ver, STR_VER_SIZE);
-	*(fw_ver_local + STR_VER_SIZE) = '\0';
+	shr_strscpy(fw_ver_local, fw_ver, sizeof(fw_ver_local));
 
 	printf("Additional Smart Log for NVME device:%s namespace-id:%x\n", devname, nsid);
 
@@ -420,7 +420,11 @@ int parse_params(char *str, int number, ...)
 static int mb_get_additional_smart_log(int argc, char **argv, struct command *acmd,
 		struct plugin *plugin)
 {
-	struct nvme_memblaze_smart_log smart_log;
+	/* the new format is printed with the larger struct */
+	union {
+		struct nvme_memblaze_smart_log old;
+		struct nvme_p4_smart_log p4;
+	} smart_log = {};
 	char *desc =
 	    "Get Memblaze vendor specific additional smart log, and show it.";
 	const char *namespace = "(optional) desired namespace";
@@ -438,24 +442,28 @@ static int mb_get_additional_smart_log(int argc, char **argv, struct command *ac
 		.namespace_id = NVME_NSID_ALL,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace),
-		OPT_FLAG("raw-binary",	 'b', &cfg.raw_binary,	  raw));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace,
+			 nvme_nsid_values),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
 	nvme_init_get_log(&cmd, cfg.namespace_id, 0xca, NVME_CSI_NVM,
-			  &smart_log, sizeof(smart_log));
+			  &smart_log.old, sizeof(smart_log.old));
 	err = libnvme_get_log(hdl, &cmd, false, NVME_LOG_PAGE_PDU_SIZE);
 	if (!err) {
 		if (!cfg.raw_binary)
 			err = show_memblaze_smart_log(hdl, cfg.namespace_id,
 						      libnvme_transport_handle_get_name(hdl),
-						      &smart_log);
+						      &smart_log.old);
 		else
-			d_raw((unsigned char *)&smart_log, sizeof(smart_log));
+			d_raw((unsigned char *)&smart_log.old,
+			      sizeof(smart_log.old));
 	}
 	if (err > 0)
 		nvme_show_status(err);
@@ -487,7 +495,9 @@ static int mb_get_powermanager_status(int argc, char **argv, struct command *acm
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -526,9 +536,11 @@ static int mb_set_powermanager_status(int argc, char **argv, struct command *acm
 		.save		  = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("value",		 'V', &cfg.value,		 value),
-		OPT_FLAG("save",		 's', &cfg.save,		 save));
+	OPT_ARGS(opts) = {
+		OPT_UINT("value", 'V', &cfg.value, value),
+		OPT_FLAG("save",  's', &cfg.save,  save),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -575,8 +587,10 @@ static int mb_set_high_latency_log(int argc, char **argv, struct command *acmd,
 		.value = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_LIST("param", 'p', &cfg.param, param));
+	OPT_ARGS(opts) = {
+		OPT_LIST("param", 'p', &cfg.param, param),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -701,7 +715,9 @@ static int mb_high_latency_log_print(int argc, char **argv, struct command *acmd
 	FILE *fdi = NULL;
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -760,46 +776,40 @@ static int mb_selective_download(int argc, char **argv, struct command *acmd, st
 	struct stat sb;
 	__cleanup_libnvme_free void *fw_buf = NULL;
 	unsigned char *fw_ptr;
-	int i;
+
+	struct argconfig_opt_val selects[] = {
+		VAL_ENUM("OOB", 18),
+		VAL_ENUM("EEP", 10),
+		VAL_ENUM("ALL", 26),
+		VAL_END()
+	};
 
 	struct config {
 		char *fw;
-		char *select;
+		int select;
 	};
 
 	struct config cfg = {
 		.fw  = "",
-		.select = "\0",
+		.select = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_STRING("fw", 'f', "FILE", &cfg.fw, fw),
-		OPT_STRING("select", 's', "flag", &cfg.select, select));
+	OPT_ARGS(opts) = {
+		OPT_FILE("fw",     'f', &cfg.fw,     fw),
+		OPT_ENUM("select", 's', &cfg.select, select, selects),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	if (strlen(cfg.select) != 3) {
+	if (!argconfig_given(opts, &cfg.select)) {
 		nvme_show_error("Invalid select flag");
 		err = EINVAL;
 		goto out;
 	}
-
-	for (i = 0; i < 3; i++)
-		cfg.select[i] = toupper(cfg.select[i]);
-
-	if (!strncmp(cfg.select, "OOB", 3)) {
-		selectNo = 18;
-	} else if (!strncmp(cfg.select, "EEP", 3)) {
-		selectNo = 10;
-	} else if (!strncmp(cfg.select, "ALL", 3)) {
-		selectNo = 26;
-	} else {
-		nvme_show_error("Invalid select flag");
-		err = EINVAL;
-		goto out;
-	}
+	selectNo = cfg.select;
 
 	fw_fd = open(cfg.fw, O_RDONLY);
 	if (fw_fd < 0) {
@@ -866,8 +876,9 @@ out:
 	return err;
 }
 
-static void ioLatencyHistogramOutput(FILE *fd, int index, int start, int end, char *unit0,
-		char *unit1, unsigned int *pHistogram, int print)
+static void ioLatencyHistogramOutput(FILE *fd, int index, int start, int end,
+		const char *unit0, const char *unit1, unsigned int *pHistogram,
+		int print)
 {
 	int len;
 	char string[64], subString0[12], subString1[12];
@@ -890,7 +901,7 @@ int io_latency_histogram(char *file, char *buf, int print, int logid)
 	FILE *fdi = fopen(file, "w+");
 	int saved_errno = fdi ? 0 : errno;
 	int i, index;
-	char unit[2][3];
+	const char *unit[2];
 	unsigned int *revision = (unsigned int *)buf;
 
 	if (!fdi)
@@ -909,11 +920,11 @@ int io_latency_histogram(char *file, char *buf, int print, int logid)
 		fPRINT_PARAM1("Bucket      Start       End         Value\n");
 		fPRINT_PARAM1("--------------------------------------------------\n");
 		index = 0;
-		strcpy(unit[0], "us");
-		strcpy(unit[1], "us");
+		unit[0] = "us";
+		unit[1] = "us";
 		for (i = 0; i < 32; i++, index++) {
 			if (i == 31) {
-				strcpy(unit[1], "ms");
+				unit[1] = "ms";
 				ioLatencyHistogramOutput(fdi, index, i * 32, 1, unit[0], unit[1],
 							 (unsigned int *)buf, print);
 			} else {
@@ -922,15 +933,15 @@ int io_latency_histogram(char *file, char *buf, int print, int logid)
 			}
 		}
 
-		strcpy(unit[0], "ms");
-		strcpy(unit[1], "ms");
+		unit[0] = "ms";
+		unit[1] = "ms";
 		for (i = 1; i < 32; i++, index++)
 			ioLatencyHistogramOutput(fdi, index, i, i + 1, unit[0], unit[1],
 						 (unsigned int *)buf, print);
 
 		for (i = 1; i < 32; i++, index++) {
 			if (i == 31) {
-				strcpy(unit[1], "s");
+				unit[1] = "s";
 				ioLatencyHistogramOutput(fdi, index, i * 32, 1, unit[0], unit[1],
 							 (unsigned int *)buf, print);
 			} else {
@@ -939,8 +950,8 @@ int io_latency_histogram(char *file, char *buf, int print, int logid)
 			}
 		}
 
-		strcpy(unit[0], "s");
-		strcpy(unit[1], "s");
+		unit[0] = "s";
+		unit[1] = "s";
 		for (i = 1; i < 4; i++, index++)
 			ioLatencyHistogramOutput(fdi, index, i, i + 1, unit[0], unit[1],
 						 (unsigned int *)buf, print);
@@ -976,8 +987,10 @@ static int mb_lat_stats_log_print(int argc, char **argv, struct command *acmd, s
 		.write = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("write", 'w', &cfg.write, write));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("write", 'w', &cfg.write, write),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1017,7 +1030,9 @@ static int memblaze_clear_error_log(int argc, char **argv, struct command *acmd,
 		.save		= 0,
 	};
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1064,10 +1079,10 @@ static int mb_set_lat_stats(int argc, char **argv, struct command *acmd, struct 
 		.disable = false,
 	};
 
-	struct argconfig_commandline_options opts[] = {
-		{"enable", 'e', "", CFG_FLAG, &cfg.enable, no_argument, enable_desc},
-		{"disable", 'd', "", CFG_FLAG, &cfg.disable, no_argument, disable_desc},
-		{NULL}
+	OPT_ARGS(opts) = {
+		OPT_FLAG("enable",  'e', &cfg.enable,  enable_desc),
+		OPT_FLAG("disable", 'd', &cfg.disable, disable_desc),
+		OPT_END()
 	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
@@ -1234,6 +1249,12 @@ struct __packed performance_stats {
 
 static int mb_set_latency_feature(int argc, char **argv, struct command *acmd, struct plugin *plugin)
 {
+	const char *read_threshold =
+		"read high latency log threshold, 0-based, unit is 10ms";
+	const char *write_threshold =
+		"write high latency log threshold, 0-based, unit is 10ms";
+	const char *trim_threshold =
+		"trim high latency log threshold, 0-based, unit is 10ms";
 	int err = 0;
 
 	// Get the configuration
@@ -1248,23 +1269,25 @@ static int mb_set_latency_feature(int argc, char **argv, struct command *acmd, s
 
 	struct config cfg = {0};
 
-	NVME_ARGS(opts,
+	OPT_ARGS(opts) = {
 		OPT_UINT("sel-perf-log", 's', &cfg.perf_monitor,
 			 "Select features to turn on, default: Disable\n"
 			 "    bit 0: latency statistics\n"
 			 "    bit 1: high latency log\n"
 			 "    bit 2: Performance stat"),
 		OPT_UINT("set-commands-mask", 'm', &cfg.cmd_mask,
-		  "Set Enable, default: Disable\n"
-		  "    bit 0: Read commands\n"
-		  "    bit 1: high Write commands\n"
-		  "    bit 2: De-allocate/TRIM (this bit is not worked for Performance stat.)"),
+			 "Set Enable, default: Disable\n"
+			 "    bit 0: Read commands\n"
+			 "    bit 1: high Write commands\n"
+			 "    bit 2: Deallocate/TRIM (no Performance stat)"),
 		OPT_UINT("set-read-threshold", 'r', &cfg.read_threshold,
-		  "set read high latency log threshold, it's a 0-based value and unit is 10ms"),
+			 read_threshold),
 		OPT_UINT("set-write-threshold", 'w', &cfg.write_threshold,
-		  "set write high latency log threshold, it's a 0-based value and unit is 10ms"),
-		OPT_UINT("set-trim-threshold", 't', &cfg.de_allocate_trim_threshold,
-		  "set trim high latency log threshold, it's a 0-based value and unit is 10ms"));
+			 write_threshold),
+		OPT_UINT("set-trim-threshold", 't',
+			 &cfg.de_allocate_trim_threshold, trim_threshold),
+		OPT_END()
+	};
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -1304,7 +1327,9 @@ static int mb_get_latency_feature(int argc, char **argv, struct command *acmd, s
 
 	// Get the configuration
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -1454,11 +1479,11 @@ static int mb_get_latency_stats(int argc, char **argv, struct command *acmd, str
 
 	struct config cfg = {0};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("raw-binary",
-			'b',
-			&cfg.raw_binary,
-			"dump the whole log buffer in binary format"));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary,
+			 "dump the whole log buffer in binary format"),
+		OPT_END()
+	};
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -1559,11 +1584,11 @@ static int mb_get_high_latency_log(int argc, char **argv, struct command *acmd,
 
 	struct config cfg = {0};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("raw-binary",
-			'b',
-			&cfg.raw_binary,
-			"dump the whole log buffer in binary format"));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary,
+			 "dump the whole log buffer in binary format"),
+		OPT_END()
+	};
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -1792,24 +1817,23 @@ static void performance_stats_print(struct performance_stats *log, const char *d
 static int mb_get_performance_stats(int argc, char **argv, struct command *acmd,
 				    struct plugin *plugin)
 {
+	const char *duration =
+		"[1-24] hours: duration of the log to print, default 1 hour";
 	// Get the configuration
 
 	struct config {
-		int  duration;
+		__u32 duration;
 		bool raw_binary;
 	};
 
 	struct config cfg = {.duration = 1, .raw_binary = false};
 
-	NVME_ARGS(opts,
-		OPT_UINT("duration",
-			'd',
-			&cfg.duration,
-			"[1-24] hours: duration of the log to be printed, default is 1 hour"),
-		OPT_FLAG("raw-binary",
-			'b',
-			&cfg.raw_binary,
-			"dump the whole log buffer in binary format"));
+	OPT_ARGS(opts) = {
+		OPT_UINT("duration", 'd', &cfg.duration, duration),
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary,
+			 "dump the whole log buffer in binary format"),
+		OPT_END()
+	};
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;

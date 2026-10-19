@@ -7,109 +7,153 @@
  */
 
 /*
- * /etc/nvme/nvme-cli.conf: a global INI config file for the options
- * defined by NVME_ARGS() in nvme.h (struct nvme_args). Values from this
- * file become the new defaults; any command-line flag still overrides
- * them, since this is loaded before argument parsing runs.
+ * /etc/nvme/nvme-cli.conf: a global INI config file for the global options
+ * (global-options.c, struct nvme_args). Its keys are their long names.
+ * Values from this file become the new defaults; any command-line flag
+ * still overrides them, since this is loaded before argument parsing runs.
  */
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include <ccan/array_size/array_size.h>
 #include <shared/ini-util.h>
 #include <shared/parse-util.h>
+#include <shared/string-util.h>
 
-#include "args.h"
+#include "argconfig.h"
+#include "cleanup.h"
 #include "global-config.h"
 
 struct global_config_ctx {
 	const char *path;
 };
 
-static int parse_uint(const char *value, unsigned int *out)
+/* The strings the config set, for a later key of the same name to free */
+static char *owned[16];
+static unsigned int nr_owned;
+
+/* Set the string option @s to a copy of @value */
+static int set_string(struct argconfig_commandline_options *s,
+		      const char *value)
 {
-	unsigned long v;
-	char *end;
+	char **var = s->default_value;
+	unsigned int i;
+	char *dup;
 
-	if (!value || !*value || *value == '-')
-		return -EINVAL;
+	if (nr_owned == ARRAY_SIZE(owned))
+		return -ENOMEM;
 
-	errno = 0;
-	v = strtoul(value, &end, 0);
-	if (errno || *end || v > (unsigned long)~0U)
-		return -EINVAL;
+	dup = strdup(value);
+	if (!dup)
+		return -ENOMEM;
 
-	*out = (unsigned int)v;
+	for (i = 0; i < nr_owned; i++) {
+		if (owned[i] == *var) {
+			free(owned[i]);
+			owned[i] = owned[--nr_owned];
+			break;
+		}
+	}
+	owned[nr_owned++] = dup;
+	*var = dup;
+
 	return 0;
+}
+
+void nvme_global_config_free(void)
+{
+	while (nr_owned)
+		free(owned[--nr_owned]);
+}
+
+/* A number of the config file up to @max, -EINVAL if it is none */
+static int parse_uint(const char *value, uint64_t max, uint64_t *out)
+{
+	return shr_parse_u64(value, max, out) ? -EINVAL : 0;
+}
+
+/* The keys are the global options which the help shows */
+static struct argconfig_commandline_options *find_key(const char *key)
+{
+	struct argconfig_commandline_options *s;
+
+	for (s = argconfig_get_global_options(); s && s->option; s++) {
+		if (s->config_type == CFG_GROUP_SEPARATOR || s->deprecated)
+			continue;
+		if (!strcmp(s->option, key))
+			return s;
+	}
+
+	return NULL;
 }
 
 static int apply_kv(struct global_config_ctx *gc, const char *key,
 		     const char *value, unsigned int line)
 {
-	unsigned int uval;
+	struct argconfig_commandline_options *s = find_key(key);
+	__cleanup_free char *k = shr_escape(key);
+	uint64_t uval;
 	bool bval;
-	char *dup;
 	int err;
 
-	if (!strcmp(key, "verbose")) {
-		err = parse_uint(value, &uval);
-		if (err)
-			goto bad_value;
-		nvme_args.verbose = uval;
-	} else if (!strcmp(key, "quiet")) {
-		err = shr_parse_bool(value, &bval);
-		if (err)
-			goto bad_value;
-		nvme_args.quiet = bval;
-	} else if (!strcmp(key, "output-format")) {
-		dup = strdup(value);
-		if (!dup)
-			return -ENOMEM;
-		nvme_args.output_format = dup;
-	} else if (!strcmp(key, "timeout")) {
-		err = parse_uint(value, &uval);
-		if (err)
-			goto bad_value;
-		nvme_args.timeout = uval;
-	} else if (!strcmp(key, "dry-run")) {
-		err = shr_parse_bool(value, &bval);
-		if (err)
-			goto bad_value;
-		nvme_args.dry_run = bval;
-	} else if (!strcmp(key, "no-retries")) {
-		err = shr_parse_bool(value, &bval);
-		if (err)
-			goto bad_value;
-		nvme_args.no_retries = bval;
-	} else if (!strcmp(key, "no-ioctl-probing")) {
-		err = shr_parse_bool(value, &bval);
-		if (err)
-			goto bad_value;
-		nvme_args.no_ioctl_probing = bval;
-	} else if (!strcmp(key, "output-format-version")) {
-		err = parse_uint(value, &uval);
-		if (err)
-			goto bad_value;
-		nvme_args.output_format_ver = uval;
-	} else if (!strcmp(key, "set-options")) {
-		dup = strdup(value);
-		if (!dup)
-			return -ENOMEM;
-		nvme_args.set_options = dup;
-	} else {
+	if (!s || !s->default_value) {
 		fprintf(stderr, "%s:%u: unknown key \"%s\", ignoring\n",
-			gc->path, line, key);
+			gc->path, line, k ? k : "");
+		return 0;
+	}
+
+	/* 'timeout = infinite' like on the command line */
+	if (argconfig_set_value_name(s, value))
+		return 0;
+
+	switch (s->config_type) {
+	case CFG_FLAG:
+		err = shr_parse_bool(value, &bval);
+		if (err)
+			goto bad_value;
+		*(bool *)s->default_value = bval;
+		break;
+	case CFG_INCREMENT:
+		/* the number of times the option is given */
+		err = parse_uint(value, INT_MAX, &uval);
+		if (err)
+			goto bad_value;
+		*(int *)s->default_value = uval;
+		break;
+	case CFG_POSITIVE:
+		err = parse_uint(value, UINT32_MAX, &uval);
+		if (!err && !argconfig_in_range(s, uval))
+			err = -EINVAL;
+		if (err)
+			goto bad_value;
+		*(uint32_t *)s->default_value = uval;
+		break;
+	case CFG_STRING:
+	case CFG_FILE:
+	case CFG_DIR:
+		err = set_string(s, value);
+		if (err)
+			return err;
+		break;
+	default:
+		fprintf(stderr, "%s:%u: key \"%s\" can't be set, ignoring\n",
+			gc->path, line, k ? k : "");
+		break;
 	}
 
 	return 0;
 
 bad_value:
 	if (err == -EINVAL) {
+		__cleanup_free char *v = shr_escape(value);
+
 		fprintf(stderr,
 			"%s:%u: invalid value \"%s\" for \"%s\", ignoring\n",
-			gc->path, line, value, key);
+			gc->path, line, v ? v : "", k ? k : "");
 		err = 0;
 	}
 	return err;
@@ -120,6 +164,7 @@ static int global_config_event(enum shr_ini_event event, const char *section,
 				unsigned int line, void *user_data)
 {
 	struct global_config_ctx *gc = user_data;
+	__cleanup_free char *k = NULL;
 
 	switch (event) {
 	case SHR_INI_SECTION:
@@ -127,13 +172,15 @@ static int global_config_event(enum shr_ini_event event, const char *section,
 	case SHR_INI_KV:
 		if (section && !strcmp(section, "Global"))
 			return apply_kv(gc, key, value, line);
+		k = shr_escape(key);
 		fprintf(stderr,
 			"%s:%u: \"%s\" outside the [Global] section, ignoring\n",
-			gc->path, line, key);
+			gc->path, line, k ? k : "");
 		return 0;
 	case SHR_INI_JUNK:
+		k = shr_escape(key);
 		fprintf(stderr, "%s:%u: malformed line \"%s\", ignoring\n",
-			gc->path, line, key);
+			gc->path, line, k ? k : "");
 		return 0;
 	}
 
@@ -149,6 +196,13 @@ int nvme_load_global_config_from(const char *path)
 	if (err && err == -ENOENT)
 		err = 0;
 	return err;
+}
+
+int nvme_load_global_config_buf(const char *text, const char *name)
+{
+	struct global_config_ctx gc = { .path = name };
+
+	return shr_ini_parse_buf(text, global_config_event, &gc);
 }
 
 int nvme_load_global_config(void)

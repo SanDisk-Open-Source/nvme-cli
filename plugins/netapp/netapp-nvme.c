@@ -28,6 +28,8 @@
 
 #include <ccan/endian/endian.h>
 #include <shared/compiler-attributes-util.h>
+#include <shared/hex-util.h>
+#include <shared/string-util.h>
 #include <shared/suffix-util.h>
 
 #include "cleanup.h"
@@ -99,16 +101,17 @@ static void netapp_convert_string(char *dst, char *src, unsigned int count)
 		dst[0] = ' ';
 }
 
-static void netapp_nguid_to_str(char *str, __u8 *nguid)
-{
-	int i;
+/* The NGUID as hex string, and the size, use or block size of a namespace */
+#define NETAPP_NGUID_LEN	(2 * 16 + 1)
+#define NETAPP_ATTR_LEN		128
 
-	memset(str, 0, 33);
-	for (i = 0; i < 16; i++)
-		str += sprintf(str, "%02x", nguid[i]);
+static void netapp_nguid_to_str(char str[NETAPP_NGUID_LEN], __u8 *nguid)
+{
+	shr_bin_to_hex(str, NETAPP_NGUID_LEN, nguid, 16, 0);
 }
 
-static void netapp_get_ns_size(char *size, unsigned long long *lba,
+static void netapp_get_ns_size(char size[NETAPP_ATTR_LEN],
+		unsigned long long *lba,
 		struct nvme_id_ns *ns)
 {
 	__u8 lba_index;
@@ -118,10 +121,11 @@ static void netapp_get_ns_size(char *size, unsigned long long *lba,
 	double nsze = le64_to_cpu(ns->nsze) * (*lba);
 	const char *s_suffix = shr_suffix_si_get(&nsze);
 
-	sprintf(size, "%.2f%sB", nsze, s_suffix);
+	snprintf(size, NETAPP_ATTR_LEN, "%.2f%sB", nsze, s_suffix);
 }
 
-static void netapp_get_ns_attrs(char *size, char *used, char *blk_size,
+static void netapp_get_ns_attrs(char size[NETAPP_ATTR_LEN],
+		char used[NETAPP_ATTR_LEN], char blk_size[NETAPP_ATTR_LEN],
 		char *version, unsigned long long *lba,
 		struct nvme_id_ctrl *ctrl, struct nvme_id_ns *ns)
 {
@@ -134,19 +138,20 @@ static void netapp_get_ns_attrs(char *size, char *used, char *blk_size,
 	double nsze = le64_to_cpu(ns->nsze) * (*lba);
 	const char *s_suffix = shr_suffix_si_get(&nsze);
 
-	sprintf(size, "%.2f%sB", nsze, s_suffix);
+	snprintf(size, NETAPP_ATTR_LEN, "%.2f%sB", nsze, s_suffix);
 
 	/* get the namespace utilization */
 	double nuse = le64_to_cpu(ns->nuse) * (*lba);
 	const char *u_suffix = shr_suffix_si_get(&nuse);
 
-	sprintf(used, "%.2f%sB", nuse, u_suffix);
+	snprintf(used, NETAPP_ATTR_LEN, "%.2f%sB", nuse, u_suffix);
 
 	/* get the namespace block size */
 	long long addr = 1LL << ns->lbaf[lba_index].ds;
 	const char *l_suffix = shr_suffix_binary_get(&addr);
 
-	sprintf(blk_size, "%u%sB", (unsigned int)addr, l_suffix);
+	snprintf(blk_size, NETAPP_ATTR_LEN, "%u%sB", (unsigned int)addr,
+		 l_suffix);
 
 	/* get the firmware version */
 	int i, max = sizeof(ctrl->fr);
@@ -364,10 +369,10 @@ static void netapp_smdevices_print_verbose(struct smdevice_info *devices,
 	int i, slta;
 	char array_label[ARRAY_LABEL_LEN / 2 + 1];
 	char volume_label[VOLUME_LABEL_LEN / 2 + 1];
-	char nguid_str[33];
+	char nguid_str[NETAPP_NGUID_LEN];
 	unsigned long long lba;
-	char size[128], used[128];
-	char blk_size[128], version[9];
+	char size[NETAPP_ATTR_LEN], used[NETAPP_ATTR_LEN];
+	char blk_size[NETAPP_ATTR_LEN], version[9];
 
 	char *formatstr = NULL;
 	char basestr[] =
@@ -445,9 +450,9 @@ static void netapp_smdevices_print_regular(struct smdevice_info *devices,
 	int i, slta;
 	char array_label[ARRAY_LABEL_LEN / 2 + 1];
 	char volume_label[VOLUME_LABEL_LEN / 2 + 1];
-	char nguid_str[33];
+	char nguid_str[NETAPP_NGUID_LEN];
 	unsigned long long lba;
-	char size[128];
+	char size[NETAPP_ATTR_LEN];
 
 	char *formatstr = NULL;
 	char basestr[] =
@@ -514,10 +519,10 @@ static void netapp_smdevices_print_json(struct smdevice_info *devices,
 	int i, slta;
 	char array_label[ARRAY_LABEL_LEN / 2 + 1];
 	char volume_label[VOLUME_LABEL_LEN / 2 + 1];
-	char nguid_str[33];
+	char nguid_str[NETAPP_NGUID_LEN];
 	unsigned long long lba;
-	char size[128], used[128];
-	char blk_size[128], version[9];
+	char size[NETAPP_ATTR_LEN], used[NETAPP_ATTR_LEN];
+	char blk_size[NETAPP_ATTR_LEN], version[9];
 
 	/* prepare for the json output */
 	root = json_create_object();
@@ -581,8 +586,8 @@ static void netapp_ontapdevices_print_verbose(struct ontapdevice_info *devices,
 	char vsname[ONTAP_LABEL_LEN] = " ";
 	char nspath[ONTAP_NS_PATHLEN] = " ";
 	unsigned long long lba;
-	char size[128], used[128];
-	char blk_size[128], version[9];
+	char size[NETAPP_ATTR_LEN], used[NETAPP_ATTR_LEN];
+	char blk_size[NETAPP_ATTR_LEN], version[9];
 	char uuid_str[37] = " ";
 	char subnqn[257], subsysname[65];
 	int i;
@@ -652,7 +657,7 @@ static void netapp_ontapdevices_print_regular(struct ontapdevice_info *devices,
 	char vsname[ONTAP_LABEL_LEN] = " ";
 	char nspath[ONTAP_NS_PATHLEN] = " ";
 	unsigned long long lba;
-	char size[128];
+	char size[NETAPP_ATTR_LEN];
 	char uuid_str[37] = " ";
 	char subnqn[257], subsysname[65];
 	int i;
@@ -718,8 +723,8 @@ static void netapp_ontapdevices_print_json(struct ontapdevice_info *devices,
 	char vsname[ONTAP_LABEL_LEN] = " ";
 	char nspath[ONTAP_NS_PATHLEN] = " ";
 	unsigned long long lba;
-	char size[128], used[128];
-	char blk_size[128], version[9];
+	char size[NETAPP_ATTR_LEN], used[NETAPP_ATTR_LEN];
+	char blk_size[NETAPP_ATTR_LEN], version[9];
 	char uuid_str[37] = " ";
 	char subnqn[257], subsysname[65];
 	int i;
@@ -834,7 +839,7 @@ static int netapp_smdevices_get_info(struct libnvme_transport_handle *hdl,
 			libnvme_status_to_string(err, false));
 		return 0;
 	}
-	strncpy(item->dev, dev, sizeof(item->dev) - 1);
+	shr_strscpy(item->dev, dev, sizeof(item->dev));
 
 	return 1;
 }
@@ -907,7 +912,7 @@ static int netapp_ontapdevices_get_info(struct libnvme_transport_handle *hdl,
 		return 0;
 	}
 
-	strncpy(item->dev, dev, sizeof(item->dev) - 1);
+	shr_strscpy(item->dev, dev, sizeof(item->dev));
 
 	return 1;
 }
@@ -933,6 +938,12 @@ static int netapp_nvme_filter(const struct dirent *d)
 	}
 	return 0;
 }
+
+#ifdef CONFIG_JSONC
+#define NETAPP_OUTPUT_FORMAT_DESC "Output format: normal|column|json"
+#else /* CONFIG_JSONC */
+#define NETAPP_OUTPUT_FORMAT_DESC "Output format: normal|column"
+#endif /* CONFIG_JSONC */
 
 static int netapp_output_format(char *format)
 {
@@ -963,10 +974,12 @@ static int netapp_smdevices(int argc, char **argv, struct command *acmd,
 	int num_smdevices = 0;
 	struct libnvme_transport_handle *hdl;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	ret = nvme_create_global_ctx(&ctx);
@@ -986,8 +999,8 @@ static int netapp_smdevices(int argc, char **argv, struct command *acmd,
 		return devs.num;
 	}
 
-	if (optind < argc)
-		devname = basename(argv[optind++]);
+	if (nvme_args.device)
+		devname = basename(nvme_args.device);
 
 	if (devname) {
 		int subsys_num, nsid;
@@ -1060,10 +1073,12 @@ static int netapp_ontapdevices(int argc, char **argv, struct command *acmd,
 	int num_ontapdevices = 0;
 	struct libnvme_transport_handle *hdl;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	ret = nvme_create_global_ctx(&ctx);
@@ -1077,8 +1092,8 @@ static int netapp_ontapdevices(int argc, char **argv, struct command *acmd,
 		return -EINVAL;
 	}
 
-	if (optind < argc)
-		devname = basename(argv[optind++]);
+	if (nvme_args.device)
+		devname = basename(nvme_args.device);
 
 	if (devname) {
 		int subsys_num, nsid;
@@ -1148,14 +1163,18 @@ static struct command netapp_smdevices_cmd = {
 	.name = "smdevices",
 	.help = "NetApp SMdevices",
 	.fn = netapp_smdevices,
-	.no_device = true,
+	.output_formats = OUTPUT_FORMATS_CUSTOM,
+	.output_format_desc = NETAPP_OUTPUT_FORMAT_DESC,
+	.device = COMMAND_DEVICE_OPTIONAL,
 };
 
 static struct command netapp_ontapdevices_cmd = {
 	.name = "ontapdevices",
 	.help = "NetApp ONTAPdevices",
 	.fn = netapp_ontapdevices,
-	.no_device = true,
+	.output_formats = OUTPUT_FORMATS_CUSTOM,
+	.output_format_desc = NETAPP_OUTPUT_FORMAT_DESC,
+	.device = COMMAND_DEVICE_OPTIONAL,
 };
 
 static struct command *commands[] = {

@@ -21,6 +21,8 @@
 #include <shared/array-util.h>
 #include <shared/compiler-attributes-util.h>
 #include <shared/fs-util.h>
+#include <shared/parse-util.h>
+#include <shared/string-util.h>
 
 #include "global-ctx.h"
 #include "nvme-print.h"
@@ -53,8 +55,10 @@ static int excl_create(int argc, char **argv, struct command *acmd,
 		char *name;
 	} cfg = { 0 };
 
-	NVME_ARGS(opts,
-		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help));
+	OPT_ARGS(opts) = {
+		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -87,8 +91,10 @@ static int excl_delete(int argc, char **argv, struct command *acmd,
 		char *name;
 	} cfg = { 0 };
 
-	NVME_ARGS(opts,
-		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help));
+	OPT_ARGS(opts) = {
+		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -164,8 +170,10 @@ static int excl_list(int argc, char **argv, struct command *acmd,
 		char *name;
 	} cfg = { 0 };
 
-	NVME_ARGS(opts,
-		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help));
+	OPT_ARGS(opts) = {
+		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -211,9 +219,11 @@ static int excl_add(int argc, char **argv, struct command *acmd,
 		char *entry;
 	} cfg = { 0 };
 
-	NVME_ARGS(opts,
+	OPT_ARGS(opts) = {
 		OPT_STRING("name",  'N', "NAME",  &cfg.name,  name_help),
-		OPT_STRING("entry", 'e', "ENTRY", &cfg.entry, entry_help));
+		OPT_STRING("entry", 'e', "ENTRY", &cfg.entry, entry_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -268,15 +278,18 @@ static int excl_remove(int argc, char **argv, struct command *acmd,
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	struct entry_collection ec = { 0 };
 	char answer[32];
-	size_t i, choice;
+	size_t i;
+	uint64_t choice;
 	int ret;
 
 	struct config {
 		char *name;
 	} cfg = { 0 };
 
-	NVME_ARGS(opts,
-		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help));
+	OPT_ARGS(opts) = {
+		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -314,8 +327,7 @@ static int excl_remove(int argc, char **argv, struct command *acmd,
 	fflush(stdout);
 
 	if (!fgets(answer, sizeof(answer), stdin) ||
-	    sscanf(answer, "%zu", &choice) != 1 ||
-	    choice < 1 || choice > ec.len) {
+	    shr_parse_u64(shr_trim(answer), ec.len, &choice) || choice < 1) {
 		printf("cancelled\n");
 		ret = 0;
 		goto out;
@@ -491,8 +503,10 @@ static int excl_edit(int argc, char **argv, struct command *acmd,
 		char *name;
 	} cfg = { 0 };
 
-	NVME_ARGS(opts,
-		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help));
+	OPT_ARGS(opts) = {
+		OPT_STRING("name", 'N', "NAME", &cfg.name, name_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -613,42 +627,42 @@ static struct command excl_create_cmd = {
 	.name = "create",
 	.help = "Create an exclusion list",
 	.fn = excl_create,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command excl_delete_cmd = {
 	.name = "delete",
 	.help = "Delete an exclusion list",
 	.fn = excl_delete,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command excl_edit_cmd = {
 	.name = "edit",
 	.help = "Edit an exclusion list interactively",
 	.fn = excl_edit,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command excl_list_cmd = {
 	.name = "list",
 	.help = "List exclusion lists or entries",
 	.fn = excl_list,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command excl_add_cmd = {
 	.name = "add",
 	.help = "Add an entry to an exclusion list",
 	.fn = excl_add,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command excl_remove_cmd = {
 	.name = "remove",
 	.help = "Remove an entry from an exclusion list",
 	.fn = excl_remove,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command *commands[] = {

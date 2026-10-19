@@ -12,11 +12,19 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/types.h>
 
-#ifndef HAVE_STRSEP
-/* strsep() is missing on some platforms (e.g. mingw/MSVC runtimes). */
-static inline char *strsep(char **stringp, const char *delim)
+/*
+ * strsep() of the C library, with a fallback for those which don't have
+ * it (e.g. mingw/MSVC runtimes). Splits *stringp at the first character of
+ * @delim and advances it past that, or sets it to NULL at the end. Returns
+ * the token, or NULL once *stringp is NULL.
+ */
+static inline char *shr_strsep(char **stringp, const char *delim)
 {
+#ifdef HAVE_STRSEP
+	return strsep(stringp, delim);
+#else
 	char *s, *end;
 
 	if (!stringp || !*stringp)
@@ -32,8 +40,8 @@ static inline char *strsep(char **stringp, const char *delim)
 
 	*stringp = end;
 	return s;
-}
 #endif
+}
 
 /*
  * NULL-safe string equality: two NULLs are equal, one NULL and one
@@ -238,3 +246,35 @@ static inline size_t shr_linelen(char *s)
 
 	return i;
 }
+
+/*
+ * A copy of @s with each control character written as \xNN, so that a
+ * string from the user can't drive the terminal when it is echoed, e.g.
+ * in an error message. Other bytes, also those of UTF-8 characters, stay.
+ * The caller frees it. NULL if out of memory.
+ */
+char *shr_escape(const char *s);
+
+/*
+ * Copy the string @src to @dst of @size bytes, cut off if it doesn't fit.
+ * @dst is always terminated, unless @size is 0.
+ * Return: the length of the copy, or -E2BIG if @src was cut off.
+ */
+ssize_t shr_strscpy(char *dst, const char *src, size_t size);
+
+/*
+ * Append the string @src to the string in @dst of @size bytes, cut off if
+ * it doesn't fit. @dst is always terminated, unless @size is 0.
+ * Return: the length of the result, or -E2BIG if @src was cut off.
+ */
+ssize_t shr_strscat(char *dst, const char *src, size_t size);
+
+/*
+ * Append the formatted text to @buf of @size bytes, which holds a string
+ * of *@len characters, and advance *@len. Text which doesn't fit is cut
+ * off, @buf stays terminated.
+ * Return: 0, or -E2BIG if the text was cut off.
+ */
+int shr_snprintf_append(char *buf, size_t size, size_t *len,
+			const char *fmt, ...)
+	__attribute__((format(printf, 4, 5)));

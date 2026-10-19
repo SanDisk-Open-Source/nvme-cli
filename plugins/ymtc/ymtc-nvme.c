@@ -31,11 +31,6 @@
 #include "src/cleanup.h"
 #include "ymtc-utils.h"
 
- /* sysfs paths for vendor ID and device ID */
-static char *vendor_id_path1 = "/sys/class/nvme/nvme%d/device/vendor";
-static char *vendor_id_path2 = "/sys/class/misc/nvme%d/device/vendor";
-static char *device_id_path1 = "/sys/class/nvme/nvme%d/device/device";
-static char *device_id_path2 = "/sys/class/misc/nvme%d/device/device";
 static unsigned short vendor_id;
 static unsigned short device_id;
 
@@ -76,14 +71,18 @@ static enum ySSDModel GetSSDModel(int idx)
 	enum ySSDModel model = UNKNOWN_SSD;
 	char path[512];
 
-	sprintf(path, vendor_id_path1, idx);
+	snprintf(path, sizeof(path),
+		 "/sys/class/nvme/nvme%d/device/vendor", idx);
 	if (ReadSysFile(path, &vendor_id) < 0) {
-		sprintf(path, vendor_id_path2, idx);
+		snprintf(path, sizeof(path),
+			 "/sys/class/misc/nvme%d/device/vendor", idx);
 		ReadSysFile(path, &vendor_id);
 	}
-	sprintf(path, device_id_path1, idx);
+	snprintf(path, sizeof(path),
+		 "/sys/class/nvme/nvme%d/device/device", idx);
 	if (ReadSysFile(path, &device_id) < 0) {
-		sprintf(path, device_id_path2, idx);
+		snprintf(path, sizeof(path),
+			 "/sys/class/misc/nvme%d/device/device", idx);
 		ReadSysFile(path, &device_id);
 	}
 	if (vendor_id == YMTC_VENDOR_ID) {
@@ -132,13 +131,11 @@ static int ymtc_parse_options(struct libnvme_global_ctx **ctx,
 	int err;
 
 	err = parse_and_open(ctx, hdl, argc, argv, desc, opts);
-	if (err) {
-		nvme_show_error("open");
+	if (err)
 		return err;
-	}
 
 	if (model) {
-		if (sscanf(argv[optind], "/dev/nvme%d", &idx) != 1)
+		if (sscanf(nvme_args.device, "/dev/nvme%d", &idx) != 1)
 			idx = 0;
 		*model = GetSSDModel(idx);
 	}
@@ -414,9 +411,12 @@ static int get_additional_smart_log(int argc, char **argv, struct command *acmd,
 		.namespace_id = NVME_NSID_ALL,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace),
-		OPT_FLAG("raw-binary",	 'b', &cfg.raw_binary,	  raw));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace,
+			 nvme_nsid_values),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw),
+		OPT_END()
+	};
 
 	err = ymtc_parse_options(&ctx, &hdl, argc, argv, desc, opts,&model);
 	if (err)

@@ -65,12 +65,14 @@ int solidigm_get_telemetry_log(int argc, char **argv, struct command *acmd, stru
 		.ctrl_init  = false,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("host-generate",   'g', &cfg.host_gen,  hgen),
-		OPT_FLAG("controller-init", 'c', &cfg.ctrl_init, cgen),
-		OPT_BYTE("data-area",       'd', &cfg.data_area, dgen),
-		OPT_FILE("config-file",     'j', &cfg.cfg_file, cfile),
-		OPT_FILE("source-file",     's', &cfg.binary_file, sfile));
+	OPT_ARGS(opts) = {
+		OPT_UINT("host-generate",   'g', &cfg.host_gen,    hgen),
+		OPT_FLAG("controller-init", 'c', &cfg.ctrl_init,   cgen),
+		OPT_BYTE("data-area",       'd', &cfg.data_area,   dgen),
+		OPT_FILE("config-file",     'j', &cfg.cfg_file,    cfile),
+		OPT_FILE("source-file",     's', &cfg.binary_file, sfile),
+		OPT_END()
+	};
 
 	int err = parse_args(argc, argv, desc, opts);
 
@@ -78,20 +80,18 @@ int solidigm_get_telemetry_log(int argc, char **argv, struct command *acmd, stru
 		return err;
 	}
 	/* When not selected on the command line, get minimum data area required */
-	if (!argconfig_parse_seen(opts, "data-area"))
-		cfg.data_area = argconfig_parse_seen(opts, "config-file") ? 3 : 1;
+	if (!argconfig_given(opts, &cfg.data_area))
+		cfg.data_area = argconfig_given(opts, &cfg.cfg_file) ? 3 : 1;
 
 	if (cfg.data_area < 1 || cfg.data_area > 4) {
 		nvme_show_error("data-area = '%d'", cfg.data_area);
 		return -EINVAL;
 	}
 
-	has_binary_file = argconfig_parse_seen(opts, "source-file");
+	has_binary_file = argconfig_given(opts, &cfg.binary_file);
 	if (has_binary_file) {
 		// If a binary file is provided, we don't want to open a device.
-		// GNU getopt() permutes the contents of argv as it scans,
-		// so that eventually all the nonoptions are at the end.
-		if (argc > optind) {
+		if (nvme_args.device) {
 			nvme_show_error(
 			"Device path not allowed when using --source-file");
 			return -EINVAL;
@@ -115,7 +115,7 @@ int solidigm_get_telemetry_log(int argc, char **argv, struct command *acmd, stru
 		return -EINVAL;
 	}
 
-	if (argconfig_parse_seen(opts, "config-file")) {
+	if (argconfig_given(opts, &cfg.cfg_file)) {
 		__cleanup_free char *conf_str = NULL;
 		enum json_tokener_error jerr;
 

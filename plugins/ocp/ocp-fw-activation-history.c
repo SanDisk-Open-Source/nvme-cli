@@ -31,7 +31,9 @@ int ocp_fw_activation_history_log(int argc, char **argv, struct command *acmd,
 {
 	const char *desc = "Retrieves the OCP firmware activation history log.";
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -71,12 +73,7 @@ int ocp_fw_activation_history_log(int argc, char **argv, struct command *acmd,
 	if (!err) {
 		nvme_print_flags_t print_flag;
 
-		err = validate_output_format(nvme_args.output_format,
-			&print_flag);
-		if (err < 0) {
-			nvme_show_error("Error: Invalid output format.");
-			return err;
-		}
+		print_flag = nvme_args.output_flags;
 
 		ocp_fw_act_history(&fw_history, print_flag);
 	}

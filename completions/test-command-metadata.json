@@ -1,11 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "nvme",
   "version": "0.0-fixture",
   "description": "Synthetic fixture for the completion generator tests.",
   "commands": [
     {
       "name": "zulu-cmd",
+      "device": "required",
       "alias": "alpha-alias",
       "description": "zulu builtin command",
       "options": [
@@ -13,6 +14,7 @@
           "long": "mode",
           "short": "m",
           "argument": "required",
+          "type": "enum",
           "metavar": "MODE",
           "description": "operating mode",
           "values": ["fast", "slow"]
@@ -21,12 +23,14 @@
           "long": "force",
           "short": "x",
           "argument": "none",
+          "type": "flag",
           "description": "don't    prompt for 'confirmation'"
         },
         {
           "long": "format",
           "short": "o",
           "argument": "required",
+          "type": "string",
           "metavar": "FMT",
           "description": "output format",
           "global": true,
@@ -35,29 +39,34 @@
         {
           "long": "secret",
           "argument": "none",
+          "type": "flag",
           "hidden": true,
           "description": "undocumented, hidden from help"
         },
         {
           "long": "verbose-level",
           "argument": "optional",
+          "type": "string",
           "description": "verbosity level"
         }
       ]
     },
     {
       "name": "no-opt-cmd",
+      "device": "required",
       "description": "builtin command with no options",
       "options": []
     },
     {
       "name": "alpha-cmd",
+      "device": "optional",
       "description": "alpha builtin command",
       "options": [
         {
           "long": "wait-time",
           "short": "w",
           "argument": "required",
+          "type": "u32",
           "metavar": "NUM",
           "description": "milliseconds to wait"
         },
@@ -65,6 +74,7 @@
           "long": "format",
           "short": "o",
           "argument": "required",
+          "type": "string",
           "metavar": "FMT",
           "description": "output format",
           "global": true,
@@ -74,20 +84,23 @@
           "long": "in-file",
           "short": "f",
           "argument": "required",
+          "type": "file",
           "metavar": "FILE",
           "description": "input file path"
         },
         {
           "long": "format-version",
           "argument": "required",
+          "type": "u32",
+          "range": {"min": 1, "max": 2},
           "metavar": "VER",
           "description": "metadata format version",
-          "global": true,
-          "values": ["1", "2"]
+          "global": true
         },
         {
           "long": "dry-run",
           "argument": "none",
+          "type": "flag",
           "description": "print actions without running them"
         }
       ]
@@ -100,19 +113,22 @@
       "commands": [
         {
           "name": "report",
+          "device": "required",
           "alias": "rpt",
           "description": "report a thing",
           "options": [
             {
               "long": "out-dir",
               "argument": "required",
-              "metavar": "DIRECTORY",
+              "type": "directory",
+              "metavar": "PATH",
               "description": "output directory"
             },
             {
               "long": "format",
               "short": "o",
               "argument": "required",
+              "type": "string",
               "metavar": "FMT",
               "description": "output format",
               "global": true,
@@ -122,20 +138,34 @@
               "long": "sel",
               "short": "S",
               "argument": "required",
+              "type": "u8",
+              "range": {"min": 0, "max": 3},
               "metavar": "SEL",
-              "description": "selection source"
+              "description": "selection source",
+              "values": ["current", "saved"]
             },
             {
               "long": "in-file",
               "short": "f",
               "argument": "required",
+              "type": "file",
               "metavar": "FILE",
               "description": "input file path"
+            },
+            {
+              "long": "kinds",
+              "short": "k",
+              "argument": "required",
+              "type": "enum-list",
+              "metavar": "NAME,...",
+              "description": "kinds to report",
+              "values": ["red", "green", "blue"]
             }
           ]
         },
         {
           "name": "no-opt-sub",
+          "device": "required",
           "description": "sub-command with no options",
           "options": []
         }
@@ -147,12 +177,14 @@
       "commands": [
         {
           "name": "local-sub",
+          "device": "none",
           "description": "sub-command with local options but no globals",
           "options": [
             {
               "long": "mode",
               "short": "m",
               "argument": "required",
+              "type": "enum",
               "metavar": "MODE",
               "description": "operating mode",
               "values": ["fast", "slow"]
@@ -160,6 +192,7 @@
             {
               "long": "secret",
               "argument": "none",
+              "type": "flag",
               "hidden": true,
               "description": "undocumented, hidden from help"
             }

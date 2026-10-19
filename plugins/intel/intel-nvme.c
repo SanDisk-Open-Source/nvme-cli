@@ -362,20 +362,19 @@ static int get_additional_smart_log(int argc, char **argv, struct command *acmd,
 		.namespace_id = NVME_NSID_ALL,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace),
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace,
+			 nvme_nsid_values),
 		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw),
-		OPT_FLAG_JSON("json",    'j', &cfg.json,         json));
+		OPT_FLAG_JSON("json",    'j', &cfg.json,         json),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	err = nvme_get_log_simple(hdl, 0xca, &smart_log, sizeof(smart_log));
 	if (!err) {
@@ -409,8 +408,10 @@ static int get_market_log(int argc, char **argv, struct command *acmd, struct pl
 	struct config cfg = {
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -469,8 +470,10 @@ static int get_temp_stats_log(int argc, char **argv, struct command *acmd, struc
 	struct config cfg = {
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1058,20 +1061,18 @@ static int get_lat_stats_log(int argc, char **argv, struct command *acmd, struct
 	struct config cfg = {
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("write",	'w', &cfg.write,	write),
-		OPT_FLAG("raw-binary",	'b', &cfg.raw_binary,	raw),
-		OPT_FLAG_JSON("json",	'j', &cfg.json,		json));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("write",      'w', &cfg.write,      write),
+		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw),
+		OPT_FLAG_JSON("json",  'j', &cfg.json,       json),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	/* For optate, latency stats are deleted every time their LID is pulled.
 	 * Therefore, we query the longest lat_stats log page first.
@@ -1289,7 +1290,8 @@ static int read_header(struct libnvme_passthru_cmd *cmd, __u8 *buf,
 	return read_entire_cmd(cmd, 0x400, 0x400, -1, hdl, buf);
 }
 
-static int setup_file(char *f, char *file, struct libnvme_transport_handle *hdl, int type)
+static int setup_file(char *f, size_t size, char *file,
+		      struct libnvme_transport_handle *hdl, int type)
 {
 	struct nvme_id_ctrl ctrl;
 	struct libnvme_passthru_cmd cmd;
@@ -1306,9 +1308,9 @@ static int setup_file(char *f, char *file, struct libnvme_transport_handle *hdl,
 		i--;
 	}
 
-	sprintf(f, "%s_%-.*s.bin", type == 0 ? "Nlog" :
-		type == 1 ? "EventLog" :  "AssertLog",
-		(int)sizeof(ctrl.sn), ctrl.sn);
+	snprintf(f, size, "%s_%-.*s.bin", type == 0 ? "Nlog" :
+		 type == 1 ? "EventLog" :  "AssertLog",
+		 (int)sizeof(ctrl.sn), ctrl.sn);
 	return err;
 }
 
@@ -1383,13 +1385,16 @@ static int get_internal_log(int argc, char **argv, struct command *acmd,
 		.core = -1
 	};
 
-	NVME_ARGS(opts,
+	OPT_ARGS(opts) = {
 		OPT_UINT("log",          'l', &cfg.log,          log),
 		OPT_INT("region",        'r', &cfg.core,         core),
 		OPT_INT("nlognum",       'm', &cfg.lnum,         nlognum),
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id),
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
 		OPT_FILE("output-file",  'O', &cfg.file,         file),
-		OPT_FLAG("verbose-nlog", 'V', &cfg.verbose,      verbose));
+		OPT_FLAG("verbose-nlog", 'V', &cfg.verbose,      verbose),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1408,7 +1413,7 @@ static int get_internal_log(int argc, char **argv, struct command *acmd,
 	}
 
 	if (!cfg.file) {
-		err = setup_file(f, cfg.file, hdl, cfg.log);
+		err = setup_file(f, sizeof(f), cfg.file, hdl, cfg.log);
 		if (err)
 			goto out_free;
 		cfg.file = f;
@@ -1564,10 +1569,10 @@ static int enable_lat_stats_tracking(int argc, char **argv,
 		.disable = false,
 	};
 
-	struct argconfig_commandline_options opts[] = {
-		{"enable", 'e', "", CFG_FLAG, &cfg.enable, no_argument, enable_desc},
-		{"disable", 'd', "", CFG_FLAG, &cfg.disable, no_argument, disable_desc},
-		{NULL}
+	OPT_ARGS(opts) = {
+		OPT_FLAG("enable",  'e', &cfg.enable,  enable_desc),
+		OPT_FLAG("disable", 'd', &cfg.disable, disable_desc),
+		OPT_END()
 	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
@@ -1645,10 +1650,12 @@ static int set_lat_stats_thresholds(int argc, char **argv,
 		.bucket_thresholds = "",
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("write",      'w', &cfg.write, write),
+	OPT_ARGS(opts) = {
+		OPT_FLAG("write",             'w', &cfg.write, write),
 		OPT_LIST("bucket-thresholds", 't', &cfg.bucket_thresholds,
-			 bucket_thresholds));
+			 bucket_thresholds),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 

@@ -12,11 +12,11 @@ SYNOPSIS
 			[--nsid=<nsid> | -n <nsid>] [--num=<num> | -N <num>]
 			[--types=<type-list,> | -t <type-list,>]
 			[--lbaros=<lbaro-list,> | -l <lbaro-list,>]
-			[--hlbars=<hlbar-list,> | -h <hlbar-list,>]
+			[--hlbars=<hlbar-list,>]
 			[--slbas=<slba-list,> | -s <slba-list,>]
 			[--nlbs=<nlb-list,> | -b <nlb-list,>]
 			[--guids=<guid-list,> | -g <guid-list,>]
-			[--sel=<select> | -S <select>] [--save | -s]
+			[--sel=<select> | -S <select>] [--save]
 
 DESCRIPTION
 -----------
@@ -36,6 +36,7 @@ OPTIONS
 --nsid=<nsid>::
 	Sends the command with the requested nsid. This is required for the
 	character devices, or overrides the block nsid if given.
+	The broadcast value 0xffffffff can also be given as 'all' or '-1'.
 
 -N <num>::
 --num=<num>::
@@ -49,7 +50,6 @@ OPTIONS
 --lbaros=<lbaro-list,>::
 	LBA range overwriteable list.
 
--h <hlbar-list,>::
 --hlbars=<hlbar-list,>::
 	hide LBA range list.
 
@@ -69,8 +69,16 @@ OPTIONS
 --sel=<select>::
 	Select (SEL): This field specifies which value of the attributes
 	to return in the provided data:
++
+[]
+|==================
+|Select|Name|Description
+|0|current|Current
+|1|default|Default
+|2|saved|Saved
+|3|supported|Supported capabilities
+|==================
 
--s::
 --save::
 	Save the attribute so that it persists through all power states and resets.
 

@@ -13,7 +13,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <inttypes.h>
 #include <libgen.h>
 #include <locale.h>
@@ -127,12 +126,15 @@ static int write_uncor(int argc, char **argv, struct command *acmd, struct plugi
 		.dspec			= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id",  'n', &cfg.namespace_id, namespace_desired),
-		  OPT_SUFFIX("start-block", 's', &cfg.start_block,  start_block),
-		  OPT_SHRT("block-count",   'c', &cfg.block_count,  block_count),
-		  OPT_BYTE("dir-type",      'T', &cfg.dtype,        dtype),
-		  OPT_SHRT("dir-spec",      'S', &cfg.dspec,        dspec_w_dtype));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_desired, nvme_nsid_values),
+		OPT_SUFFIX("start-block", 's', &cfg.start_block, start_block),
+		OPT_SHRT("block-count",   'c', &cfg.block_count, block_count),
+		OPT_BYTE("dir-type",      'T', &cfg.dtype,       dtype),
+		OPT_SHRT("dir-spec",      'S', &cfg.dspec,       dspec_w_dtype),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -479,22 +481,27 @@ static int write_zeroes(int argc, char **argv,
 		.nsz				= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id",      'n', &cfg.nsid,				 namespace_desired),
-		  OPT_SUFFIX("start-block",     's', &cfg.start_block,       start_block),
-		  OPT_SHRT("block-count",       'c', &cfg.block_count,       block_count),
-		  OPT_BYTE("dir-type",          'T', &cfg.dtype,             dtype),
-		  OPT_FLAG("deac",              'd', &cfg.deac,              deac),
-		  OPT_FLAG("limited-retry",     'l', &cfg.limited_retry,     limited_retry),
-		  OPT_FLAG("force-unit-access", 'f', &cfg.force_unit_access, force_unit_access),
-		  OPT_BYTE("prinfo",            'p', &cfg.prinfo,            prinfo),
-		  OPT_SUFFIX("ref-tag",         'r', &cfg.ilbrt,			 ref_tag),
-		  OPT_SHRT("app-tag-mask",      'm', &cfg.lbatm,			 app_tag_mask),
-		  OPT_SHRT("app-tag",           'a', &cfg.lbat,				 app_tag),
-		  OPT_SUFFIX("storage-tag",     'S', &cfg.lbst,				 storage_tag),
-		  OPT_FLAG("storage-tag-check", 'C', &cfg.stc,				 storage_tag_check),
-		  OPT_SHRT("dir-spec",          'D', &cfg.dspec,             dspec_w_dtype),
-		  OPT_FLAG("namespace-zeroes",  'Z', &cfg.nsz,               nsz));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.nsid, namespace_desired,
+			 nvme_nsid_values),
+		OPT_SUFFIX("start-block", 's', &cfg.start_block, start_block),
+		OPT_SHRT("block-count",   'c', &cfg.block_count, block_count),
+		OPT_BYTE("dir-type",      'T', &cfg.dtype,       dtype),
+		OPT_FLAG("deac",          'd', &cfg.deac,        deac),
+		OPT_FLAG("limited-retry", 'l', &cfg.limited_retry,
+			 limited_retry),
+		OPT_FLAG("force-unit-access", 'f', &cfg.force_unit_access,
+			 force_unit_access),
+		OPT_BYTE("prinfo",        'p', &cfg.prinfo,      prinfo),
+		OPT_SUFFIX("ref-tag",     'r', &cfg.ilbrt,       ref_tag),
+		OPT_SHRT("app-tag-mask",  'm', &cfg.lbatm,       app_tag_mask),
+		OPT_SHRT("app-tag",       'a', &cfg.lbat,        app_tag),
+		OPT_SUFFIX("storage-tag", 'S', &cfg.lbst,        storage_tag),
+		OPT_FLAG("storage-tag-check", 'C', &cfg.stc, storage_tag_check),
+		OPT_SHRT("dir-spec",      'D', &cfg.dspec,       dspec_w_dtype),
+		OPT_FLAG("namespace-zeroes", 'Z', &cfg.nsz, nsz),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -577,7 +584,6 @@ static int dsm(int argc, char **argv, struct command *acmd, struct plugin *plugi
 	__u32 ctx_attrs[NVME_DSM_MAX_RANGES] = {0,};
 	__u32 nlbs[NVME_DSM_MAX_RANGES] = {0,};
 	__u64 slbas[NVME_DSM_MAX_RANGES] = {0,};
-	nvme_print_flags_t flags;
 	uint16_t nc, nb, ns;
 	int err;
 
@@ -603,15 +609,18 @@ static int dsm(int argc, char **argv, struct command *acmd, struct plugin *plugi
 		.cdw11		= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id_desired),
-		  OPT_LIST("ctx-attrs",    'a', &cfg.ctx_attrs,    context_attrs),
-		  OPT_LIST("blocks",       'b', &cfg.blocks,       blocks),
-		  OPT_LIST("slbs",         's', &cfg.slbas,        starting_blocks),
-		  OPT_FLAG("ad",           'd', &cfg.ad,           ad),
-		  OPT_FLAG("idw",          'w', &cfg.idw,          idw),
-		  OPT_FLAG("idr",          'r', &cfg.idr,          idr),
-		  OPT_UINT("cdw11",        'c', &cfg.cdw11,        cdw11));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_desired, nvme_nsid_values),
+		OPT_LIST("ctx-attrs", 'a', &cfg.ctx_attrs, context_attrs),
+		OPT_LIST("blocks",    'b', &cfg.blocks,    blocks),
+		OPT_LIST("slbs",      's', &cfg.slbas,     starting_blocks),
+		OPT_FLAG("ad",        'd', &cfg.ad,        ad),
+		OPT_FLAG("idw",       'w', &cfg.idw,       idw),
+		OPT_FLAG("idr",       'r', &cfg.idr,       idr),
+		OPT_UINT("cdw11",     'c', &cfg.cdw11,     cdw11),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -621,17 +630,11 @@ static int dsm(int argc, char **argv, struct command *acmd, struct plugin *plugi
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
-
 	nc = shr_parse_csv_u32(cfg.ctx_attrs, ctx_attrs, ARRAY_SIZE(ctx_attrs));
 	nb = shr_parse_csv_u32(cfg.blocks, nlbs, ARRAY_SIZE(nlbs));
 	ns = shr_parse_csv_u64(cfg.slbas, slbas, ARRAY_SIZE(slbas));
 	if ((nb != ns) ||
-	    (argconfig_parse_seen(opts, "ctx-attrs") && nb != nc)) {
+	    (argconfig_given(opts, &cfg.ctx_attrs) && nb != nc)) {
 		nvme_show_error("No valid range definition provided");
 		return -EINVAL;
 	}
@@ -768,28 +771,32 @@ static int copy_cmd(int argc, char **argv, struct command *acmd, struct plugin *
 		.stc		= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id",           'n', &cfg.nsid,		namespace_id_desired),
-		  OPT_SUFFIX("sdlba",                'd', &cfg.sdlba,		d_sdlba),
-		  OPT_LIST("slbs",                   's', &cfg.slbas,		d_slbas),
-		  OPT_LIST("blocks",                 'b', &cfg.nlbs,		d_nlbs),
-		  OPT_LIST("snsids",                 'N', &cfg.snsids,		d_snsids),
-		  OPT_LIST("sopts",                  'O', &cfg.sopts,		d_sopts),
-		  OPT_FLAG("limited-retry",          'l', &cfg.lr,			d_lr),
-		  OPT_FLAG("force-unit-access",      'f', &cfg.fua,			d_fua),
-		  OPT_BYTE("prinfow",                'p', &cfg.prinfow,		d_prinfow),
-		  OPT_BYTE("prinfor",                'P', &cfg.prinfor,		d_prinfor),
-		  OPT_SUFFIX("ref-tag",              'r', &cfg.ilbrt,		d_ilbrt),
-		  OPT_LIST("expected-ref-tags",      'R', &cfg.eilbrts,		d_eilbrts),
-		  OPT_SHRT("app-tag",                'a', &cfg.lbat,		d_lbat),
-		  OPT_LIST("expected-app-tags",      'A', &cfg.elbats,		d_elbats),
-		  OPT_SHRT("app-tag-mask",           'm', &cfg.lbatm,		d_lbatm),
-		  OPT_LIST("expected-app-tag-masks", 'M', &cfg.elbatms,		d_elbatms),
-		  OPT_BYTE("dir-type",               'T', &cfg.dtype,		d_dtype),
-		  OPT_SHRT("dir-spec",               'S', &cfg.dspec,		d_dspec),
-		  OPT_BYTE("format",                 'F', &cfg.format,		d_format),
-		  OPT_SUFFIX("storage-tag",			 't', &cfg.lbst,		storage_tag),
-		  OPT_FLAG("storage-tag-check",		 'c', &cfg.stc,			storage_tag_check));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.nsid, namespace_id_desired,
+			 nvme_nsid_values),
+		OPT_SUFFIX("sdlba",           'd', &cfg.sdlba,   d_sdlba),
+		OPT_LIST("slbs",              's', &cfg.slbas,   d_slbas),
+		OPT_LIST("blocks",            'b', &cfg.nlbs,    d_nlbs),
+		OPT_LIST("snsids",            'N', &cfg.snsids,  d_snsids),
+		OPT_LIST("sopts",             'O', &cfg.sopts,   d_sopts),
+		OPT_FLAG("limited-retry",     'l', &cfg.lr,      d_lr),
+		OPT_FLAG("force-unit-access", 'f', &cfg.fua,     d_fua),
+		OPT_BYTE("prinfow",           'p', &cfg.prinfow, d_prinfow),
+		OPT_BYTE("prinfor",           'P', &cfg.prinfor, d_prinfor),
+		OPT_SUFFIX("ref-tag",         'r', &cfg.ilbrt,   d_ilbrt),
+		OPT_LIST("expected-ref-tags", 'R', &cfg.eilbrts, d_eilbrts),
+		OPT_SHRT("app-tag",           'a', &cfg.lbat,    d_lbat),
+		OPT_LIST("expected-app-tags", 'A', &cfg.elbats,  d_elbats),
+		OPT_SHRT("app-tag-mask",      'm', &cfg.lbatm,   d_lbatm),
+		OPT_LIST("expected-app-tag-masks", 'M', &cfg.elbatms,
+			 d_elbatms),
+		OPT_BYTE("dir-type",          'T', &cfg.dtype,   d_dtype),
+		OPT_SHRT("dir-spec",          'S', &cfg.dspec,   d_dspec),
+		OPT_BYTE("format",            'F', &cfg.format,  d_format),
+		OPT_SUFFIX("storage-tag",     't', &cfg.lbst,    storage_tag),
+		OPT_FLAG("storage-tag-check", 'c', &cfg.stc, storage_tag_check),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -906,8 +913,11 @@ static int flush_cmd(int argc, char **argv, struct command *acmd, struct plugin 
 		.namespace_id	= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id_desired));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_desired, nvme_nsid_values),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1026,29 +1036,36 @@ static int submit_io(int opcode, char *command, const char *desc, int argc, char
 		.force				= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id",      'n', &cfg.nsid,				 namespace_id_desired),
-		  OPT_SUFFIX("start-block",     's', &cfg.start_block,       start_block_addr),
-		  OPT_SHRT("block-count",       'c', &cfg.block_count,       block_count),
-		  OPT_SHRT("block-size",        'b', &cfg.block_size,        block_size),
-		  OPT_SUFFIX("data-size",       'z', &cfg.data_size,         data_size),
-		  OPT_SUFFIX("metadata-size",   'y', &cfg.metadata_size,     metadata_size),
-		  OPT_SUFFIX("ref-tag",         'r', &cfg.ilbrt,			 ref_tag),
-		  OPT_FILE("data",              'd', &cfg.data,              data),
-		  OPT_FILE("metadata",          'M', &cfg.metadata,          metadata),
-		  OPT_BYTE("prinfo",            'p', &cfg.prinfo,            prinfo),
-		  OPT_SHRT("app-tag-mask",      'm', &cfg.lbatm,			 app_tag_mask),
-		  OPT_SHRT("app-tag",           'a', &cfg.lbat,				 app_tag),
-		  OPT_SUFFIX("storage-tag",     'g', &cfg.lbst,				 storage_tag),
-		  OPT_FLAG("limited-retry",     'l', &cfg.limited_retry,     limited_retry_num),
-		  OPT_FLAG("force-unit-access", 'f', &cfg.force_unit_access, force_unit_access),
-		  OPT_FLAG("storage-tag-check", 'C', &cfg.stc,				 storage_tag_check),
-		  OPT_BYTE("dir-type",          'T', &cfg.dtype,             dtype_for_write),
-		  OPT_SHRT("dir-spec",          'S', &cfg.dspec,             dspec),
-		  OPT_BYTE("dsm",               'D', &cfg.dsmgmt,            dsm),
-		  OPT_FLAG("show-command",      'V', &cfg.show,              show),
-		  OPT_FLAG("latency",           't', &cfg.latency,           latency),
-		  OPT_FLAG("force",               0, &cfg.force,             force));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.nsid, namespace_id_desired,
+			 nvme_nsid_values),
+		OPT_SUFFIX("start-block", 's', &cfg.start_block,
+			   start_block_addr),
+		OPT_SHRT("block-count",   'c', &cfg.block_count, block_count),
+		OPT_SHRT("block-size",    'b', &cfg.block_size,  block_size),
+		OPT_SUFFIX("data-size",   'z', &cfg.data_size,   data_size),
+		OPT_SUFFIX("metadata-size", 'y', &cfg.metadata_size,
+			   metadata_size),
+		OPT_SUFFIX("ref-tag",     'r', &cfg.ilbrt,       ref_tag),
+		OPT_FILE("data",          'd', &cfg.data,        data),
+		OPT_FILE("metadata",      'M', &cfg.metadata,    metadata),
+		OPT_BYTE("prinfo",        'p', &cfg.prinfo,      prinfo),
+		OPT_SHRT("app-tag-mask",  'm', &cfg.lbatm,       app_tag_mask),
+		OPT_SHRT("app-tag",       'a', &cfg.lbat,        app_tag),
+		OPT_SUFFIX("storage-tag", 'g', &cfg.lbst,        storage_tag),
+		OPT_FLAG("limited-retry", 'l', &cfg.limited_retry,
+			 limited_retry_num),
+		OPT_FLAG("force-unit-access", 'f', &cfg.force_unit_access,
+			 force_unit_access),
+		OPT_FLAG("storage-tag-check", 'C', &cfg.stc, storage_tag_check),
+		OPT_BYTE("dir-type", 'T', &cfg.dtype, dtype_for_write),
+		OPT_SHRT("dir-spec",      'S', &cfg.dspec,       dspec),
+		OPT_BYTE("dsm",           'D', &cfg.dsmgmt,      dsm),
+		OPT_FLAG("show-command",  'V', &cfg.show,        show),
+		OPT_FLAG("latency",       't', &cfg.latency,     latency),
+		OPT_FLAG("force",         0,   &cfg.force,       force),
+		OPT_END()
+	};
 
 	if (opcode != nvme_cmd_write) {
 		err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
@@ -1061,13 +1078,12 @@ static int submit_io(int opcode, char *command, const char *desc, int argc, char
 		err = open_exclusive(&ctx, &hdl, argc, argv, cfg.force, opts);
 		if (err) {
 			if (err == -EBUSY) {
-				nvme_show_error("Failed to open %s.", basename(argv[optind]));
+				nvme_show_error("Failed to open %s.",
+						basename(nvme_args.device));
 				nvme_show_error("Namespace is currently busy.");
 				if (!cfg.force)
 					nvme_show_error(
 						"Use the force [--force] option to ignore that.");
-			} else {
-				argconfig_print_help(desc, opts);
 			}
 			return err;
 		}
@@ -1164,7 +1180,7 @@ static int submit_io(int opcode, char *command, const char *desc, int argc, char
 	else
 		buffer_size = cfg.data_size;
 
-	if (argconfig_parse_seen(opts, "block-count")) {
+	if (argconfig_given(opts, &cfg.block_count)) {
 		/* Use the value provided */
 		nblocks = cfg.block_count;
 	} else {
@@ -1349,18 +1365,23 @@ static int verify_cmd(int argc, char **argv, struct command *acmd, struct plugin
 		.stc				= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_UINT("namespace-id",      'n', &cfg.nsid,				 namespace_desired),
-		  OPT_SUFFIX("start-block",     's', &cfg.start_block,       start_block),
-		  OPT_SHRT("block-count",       'c', &cfg.block_count,       block_count),
-		  OPT_FLAG("limited-retry",     'l', &cfg.limited_retry,     limited_retry),
-		  OPT_FLAG("force-unit-access", 'f', &cfg.force_unit_access, force_unit_access_verify),
-		  OPT_BYTE("prinfo",            'p', &cfg.prinfo,            prinfo),
-		  OPT_SUFFIX("ref-tag",         'r', &cfg.ilbrt,			 ref_tag),
-		  OPT_SHRT("app-tag",           'a', &cfg.lbat,				 app_tag),
-		  OPT_SHRT("app-tag-mask",      'm', &cfg.lbatm,			 app_tag_mask),
-		  OPT_SUFFIX("storage-tag",     'S', &cfg.lbst,				 storage_tag),
-		  OPT_FLAG("storage-tag-check", 'C', &cfg.stc,				 storage_tag_check));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.nsid, namespace_desired,
+			 nvme_nsid_values),
+		OPT_SUFFIX("start-block", 's', &cfg.start_block, start_block),
+		OPT_SHRT("block-count",   'c', &cfg.block_count, block_count),
+		OPT_FLAG("limited-retry", 'l', &cfg.limited_retry,
+			 limited_retry),
+		OPT_FLAG("force-unit-access", 'f', &cfg.force_unit_access,
+			 force_unit_access_verify),
+		OPT_BYTE("prinfo",        'p', &cfg.prinfo,      prinfo),
+		OPT_SUFFIX("ref-tag",     'r', &cfg.ilbrt,       ref_tag),
+		OPT_SHRT("app-tag",       'a', &cfg.lbat,        app_tag),
+		OPT_SHRT("app-tag-mask",  'm', &cfg.lbatm,       app_tag_mask),
+		OPT_SUFFIX("storage-tag", 'S', &cfg.lbst,        storage_tag),
+		OPT_FLAG("storage-tag-check", 'C', &cfg.stc, storage_tag_check),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1445,23 +1466,22 @@ static int get_lba_status(int argc, char **argv, struct command *acmd,
 		.rl		= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("ish",          'I', &cfg.ish,           ish),
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_desired),
-		  OPT_SUFFIX("start-lba",  's', &cfg.slba,          slba),
-		  OPT_UINT("max-dw",       'm', &cfg.mndw,          mndw),
-		  OPT_BYTE("action",       'a', &cfg.atype,         atype),
-		  OPT_SHRT("range-len",    'l', &cfg.rl,            rl));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("ish",          'I', &cfg.ish,          ish),
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_desired, nvme_nsid_values),
+		OPT_SUFFIX("start-lba",  's', &cfg.slba,         slba),
+		OPT_UINT("max-dw",       'm', &cfg.mndw,         mndw),
+		OPT_BYTE("action",       'a', &cfg.atype,        atype),
+		OPT_SHRT("range-len",    'l', &cfg.rl,           rl),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (!cfg.atype) {
 		nvme_show_error("action type (--action) has to be given");
@@ -1509,7 +1529,6 @@ static int capacity_mgmt(int argc, char **argv, struct command *acmd, struct plu
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	struct libnvme_passthru_cmd cmd;
 	int err = -1;
-	nvme_print_flags_t flags;
 
 	struct config {
 		bool	ish;
@@ -1527,22 +1546,18 @@ static int capacity_mgmt(int argc, char **argv, struct command *acmd, struct plu
 		.dw12		= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("ish",         'I', &cfg.ish,          ish),
-		  OPT_BYTE("operation",   'O', &cfg.operation,    operation),
-		  OPT_SHRT("element-id",  'i', &cfg.element_id,   element_id),
-		  OPT_UINT("cap-lower",   'l', &cfg.dw11,         cap_lower),
-		  OPT_UINT("cap-upper",   'u', &cfg.dw12,         cap_upper));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("ish",        'I', &cfg.ish,        ish),
+		OPT_BYTE("operation",  'O', &cfg.operation,  operation),
+		OPT_SHRT("element-id", 'i', &cfg.element_id, element_id),
+		OPT_UINT("cap-lower",  'l', &cfg.dw11,       cap_lower),
+		OPT_UINT("cap-upper",  'u', &cfg.dw12,       cap_upper),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
 
 	if (cfg.operation > 0xf) {
 		nvme_show_error("invalid operation field: %u", cfg.operation);

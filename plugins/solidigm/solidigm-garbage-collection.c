@@ -78,18 +78,15 @@ int solidigm_get_garbage_collection_log(int argc, char **argv, struct command *a
 	int err;
 	__u8 uuid_index;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err) {
-		nvme_show_error("Invalid output format '%s'",
-			nvme_args.output_format);
-		return -EINVAL;
-	}
+	flags = nvme_args.output_flags;
 
 	sldgm_get_uuid_index(hdl, &uuid_index);
 

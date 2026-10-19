@@ -8,6 +8,7 @@
 #include <libnvme.h>
 
 #include <shared/compiler-attributes-util.h>
+#include <shared/hex-util.h>
 
 #include "cleanup.h"
 #include "global-ctx.h"
@@ -211,7 +212,6 @@ static json_object *ssns_to_json(struct libnbft_subsystem_ns *ss)
 	struct json_object *ss_json;
 	struct json_object *hfi_array_json;
 	char json_str[40];
-	char *json_str_p;
 	int i;
 
 	ss_json = json_create_object();
@@ -238,21 +238,18 @@ static json_object *ssns_to_json(struct libnbft_subsystem_ns *ss)
 		goto fail;
 
 	memset(json_str, 0, sizeof(json_str));
-	json_str_p = json_str;
 
 	switch (ss->nid_type) {
 	case LIBNBFT_NID_TYPE_EUI64:
 		if (json_object_add_value_string(ss_json, "nid_type", "eui64"))
 			goto fail;
-		for (i = 0; i < 8; i++)
-			json_str_p += sprintf(json_str_p, "%02x", ss->nid[i]);
+		shr_bin_to_hex(json_str, sizeof(json_str), ss->nid, 8, 0);
 		break;
 
 	case LIBNBFT_NID_TYPE_NGUID:
 		if (json_object_add_value_string(ss_json, "nid_type", "nguid"))
 			goto fail;
-		for (i = 0; i < 16; i++)
-			json_str_p += sprintf(json_str_p, "%02x", ss->nid[i]);
+		shr_bin_to_hex(json_str, sizeof(json_str), ss->nid, 16, 0);
 		break;
 
 	case LIBNBFT_NID_TYPE_NS_UUID:
@@ -664,19 +661,22 @@ int show_nbft(int argc, char **argv, struct command *acmd, struct plugin *plugin
 	nvme_print_flags_t flags;
 	int ret;
 
-	NVME_ARGS(opts,
-		OPT_FLAG("subsystem", 's', &show_subsys, "show NBFT subsystems"),
-		OPT_FLAG("hfi", 'H', &show_hfi, "show NBFT HFIs"),
-		OPT_FLAG("discovery", 'd', &show_discovery, "show NBFT discovery controllers"),
-		OPT_STRING("nbft-path", 0, "STR", &nbft_path, "user-defined path for NBFT tables"));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("subsystem", 's', &show_subsys,
+			 "show NBFT subsystems"),
+		OPT_FLAG("hfi",         0,   &show_hfi, "show NBFT HFIs"),
+		OPT_FLAG("discovery", 'd', &show_discovery,
+			 "show NBFT discovery controllers"),
+		OPT_DIR("nbft-path", 0, &nbft_path,
+			"user-defined path for NBFT tables"),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
 		return ret;
 
-	ret = validate_output_format(nvme_args.output_format, &flags);
-	if (ret < 0)
-		return ret;
+	flags = nvme_args.output_flags;
 
 	ret = nvme_create_global_ctx(&ctx);
 	if (ret)
@@ -703,7 +703,7 @@ static struct command show_nbft_cmd = {
 	.name = "show",
 	.help = "Show contents of ACPI NBFT tables",
 	.fn = show_nbft,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command *commands[] = {

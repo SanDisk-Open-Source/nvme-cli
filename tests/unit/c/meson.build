@@ -11,19 +11,42 @@ test_argconfig_parse = executable(
     ],
 )
 
-test('nvme-cli - argconfig_parse', test_argconfig_parse)
+test('nvme-cli - argconfig-parse', test_argconfig_parse, suite: 'unit')
 
-test_global_config = executable(
-    'test-global-config',
-    ['test-global-config.c', '../../../src/global-config.c'],
+test_argconfig_diff = executable(
+    'test-argconfig-diff',
+    [
+        'test-argconfig-diff.c',
+        'argconfig-getopt-ref.c',
+        '../../../src/argconfig.c',
+    ],
     dependencies: [
         config_dep,
         ccan_dep,
+        libnvme_dep,
         shared_dep,
     ],
 )
 
-test('nvme-cli - global-config', test_global_config)
+test('nvme-cli - argconfig-diff', test_argconfig_diff, suite: 'unit')
+
+test_global_config = executable(
+    'test-global-config',
+    [
+        'test-global-config.c',
+        '../../../src/argconfig.c',
+        '../../../src/global-config.c',
+        '../../../src/global-options.c',
+    ],
+    dependencies: [
+        config_dep,
+        ccan_dep,
+        libnvme_dep,
+        shared_dep,
+    ],
+)
+
+test('nvme-cli - global-config', test_global_config, suite: 'unit')
 
 test_plugin = executable(
     'test-plugin',
@@ -37,4 +60,4 @@ test_plugin = executable(
     ],
 )
 
-test('nvme-cli - plugin dispatch', test_plugin)
+test('nvme-cli - plugin-dispatch', test_plugin, suite: 'unit')

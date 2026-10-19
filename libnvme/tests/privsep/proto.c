@@ -24,6 +24,8 @@
 #include <linux/sed-opal.h>
 #endif
 
+#include <ccan/array_size/array_size.h>
+
 #include "privsep/privsep-proto.h"
 
 #include "../ioctl/util.h"
@@ -346,6 +348,76 @@ static void test_sed(void)
 }
 #endif
 
+static void test_fabrics(void)
+{
+	static const char refused[] = "nqn=" MOCK_NQN_REFUSED;
+	char buf[LIBNVME_PRIVSEP_MAX_FABRICS + 1];
+	struct libnvme_privsep_resp resp;
+	struct helper h = start();
+
+	hello(&h);
+
+	request(&h, LIBNVME_PRIVSEP_OP_FABRICS, 0, NULL, 0);
+	check(!response(&h, &resp), "reading the options failed");
+	check(resp.len == strlen(MOCK_FABRICS_OPTIONS),
+	      "options length %u", resp.len);
+	check(!libnvme_privsep_recv(h.sock, buf, resp.len), "options");
+	check(!memcmp(buf, MOCK_FABRICS_OPTIONS, resp.len), "options text");
+
+	request(&h, LIBNVME_PRIVSEP_OP_FABRICS, 0, refused,
+		strlen(refused));
+	check(response(&h, &resp) == -ECONNREFUSED && !resp.len,
+	      "connect error not returned");
+	check(resp.result == LIBNVME_PRIVSEP_FABRICS_WRITE,
+	      "failed step %llu", (unsigned long long)resp.result);
+
+	request(&h, LIBNVME_PRIVSEP_OP_FABRICS, 1, NULL, 0);
+	check(response(&h, &resp) == -EINVAL, "FABRICS with a handle id");
+
+	memcpy(buf, "nqn=a", 6);
+	request(&h, LIBNVME_PRIVSEP_OP_FABRICS, 0, buf, 6);
+	check(response(&h, &resp) == -EINVAL, "NUL in connect arguments");
+
+	memset(buf, 'a', sizeof(buf));
+	request(&h, LIBNVME_PRIVSEP_OP_FABRICS, 0, buf,
+		LIBNVME_PRIVSEP_MAX_FABRICS);
+	check(response(&h, &resp) == -EINVAL,
+	      "oversized connect arguments");
+
+	check(!stop(&h), "helper failed");
+}
+
+static void test_delete_ctrl(void)
+{
+	static const char * const names[] = {
+		"nvme0n1", "ng0n1", "nvme", "nvme0/../../../../tmp/x",
+		"../nvme0", "nvme2147483648", "",
+	};
+	struct libnvme_privsep_resp resp;
+	struct helper h = start();
+	size_t i;
+
+	hello(&h);
+
+	for (i = 0; i < ARRAY_SIZE(names); i++) {
+		request(&h, LIBNVME_PRIVSEP_OP_DELETE_CTRL, 0, names[i],
+			strlen(names[i]) + 1);
+		check(response(&h, &resp) == -EINVAL,
+		      "controller name '%s' accepted", names[i]);
+	}
+
+	request(&h, LIBNVME_PRIVSEP_OP_DELETE_CTRL, 0, "nvme5", 5);
+	check(response(&h, &resp) == -EINVAL, "unterminated name accepted");
+
+	request(&h, LIBNVME_PRIVSEP_OP_DELETE_CTRL, 1, "nvme5", 6);
+	check(response(&h, &resp) == -EINVAL, "DELETE_CTRL with a handle id");
+
+	request(&h, LIBNVME_PRIVSEP_OP_DELETE_CTRL, 0, "nvme6", 6);
+	check(response(&h, &resp) == -EIO, "short delete_controller write");
+
+	check(!stop(&h), "helper failed");
+}
+
 int main(int argc, char **argv)
 {
 	check(argc == 3, "usage: %s HELPER MOCK_LIBRARY", argv[0]);
@@ -360,6 +432,8 @@ int main(int argc, char **argv)
 	test_device_op_len();
 	test_regs_len();
 	test_sed();
+	test_fabrics();
+	test_delete_ctrl();
 
 	printf("privsep protocol tests passed\n");
 

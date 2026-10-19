@@ -158,17 +158,15 @@ static int log_pages_supp(int argc, char **argv, struct command *acmd,
 	nvme_print_flags_t flags;
 	int fmt;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	err = nvme_get_log_simple(hdl, 0xc5, &logPageMap, sizeof(logPageMap));
 	if (!err) {
@@ -313,6 +311,20 @@ static char *print_ext_smart_id(__u8 attrId)
 	}
 }
 
+/* A 128 bit counter as "0x" and 32 hex digits */
+static void u128_hex_str(char *buf, size_t size, const U128 *v)
+{
+	snprintf(buf, size, "0x%016"PRIx64"%016"PRIx64"",
+		 (uint64_t)le64_to_cpu(v->MS__u64),
+		 (uint64_t)le64_to_cpu(v->LS__u64));
+}
+
+/* The name of a 64 bit attribute by its LSB, without the "LSB of " */
+static void print_64bit_name(__u8 lsb_id)
+{
+	printf("%-40s", print_ext_smart_id(lsb_id) + strlen("LSB of "));
+}
+
 static __u64 smart_attribute_vs(__u16 verNo, SmartVendorSpecific attr)
 {
 	__u64 val = 0;
@@ -334,7 +346,6 @@ static void print_smart_log(__u16 verNo, SmartVendorSpecific attr, int lastAttr)
 	static __u64 lsbGbErased = 0, msbGbErased = 0, lsbLifWrtToFlash = 0, msbLifWrtToFlash = 0,
 		lsbLifWrtFrmHost = 0, msbLifWrtFrmHost = 0, lsbLifRdToHost = 0, msbLifRdToHost = 0, lsbTrimCnt = 0, msbTrimCnt = 0;
 	char buf[40] = {0};
-	char strBuf[35] = {0};
 	int hideAttr = 0;
 
 	if (attr.AttributeNumber == VS_ATTR_ID_GB_ERASED_LSB) {
@@ -394,44 +405,46 @@ static void print_smart_log(__u16 verNo, SmartVendorSpecific attr, int lastAttr)
 	}
 
 	if (lastAttr == 1) {
-		sprintf(strBuf, "%s", (print_ext_smart_id(VS_ATTR_ID_GB_ERASED_LSB) + 7));
-		printf("%-40s", strBuf);
+		print_64bit_name(VS_ATTR_ID_GB_ERASED_LSB);
 
 		printf("%-15d", VS_ATTR_ID_GB_ERASED_MSB << 8 | VS_ATTR_ID_GB_ERASED_LSB);
 
-		sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbGbErased, (uint64_t)lsbGbErased);
+		snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+			 (uint64_t)msbGbErased, (uint64_t)lsbGbErased);
 		printf(" %s\n", buf);
 
-		sprintf(strBuf, "%s", (print_ext_smart_id(VS_ATTR_ID_LIFETIME_WRITES_TO_FLASH_LSB) + 7));
-		printf("%-40s", strBuf);
+		print_64bit_name(VS_ATTR_ID_LIFETIME_WRITES_TO_FLASH_LSB);
 
 		printf("%-15d", VS_ATTR_ID_LIFETIME_WRITES_TO_FLASH_MSB << 8 | VS_ATTR_ID_LIFETIME_WRITES_TO_FLASH_LSB);
 
-		sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbLifWrtToFlash, (uint64_t)lsbLifWrtToFlash);
+		snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+			 (uint64_t)msbLifWrtToFlash,
+			 (uint64_t)lsbLifWrtToFlash);
 		printf(" %s\n", buf);
 
-		sprintf(strBuf, "%s", (print_ext_smart_id(VS_ATTR_ID_LIFETIME_WRITES_FROM_HOST_LSB) + 7));
-		printf("%-40s", strBuf);
+		print_64bit_name(VS_ATTR_ID_LIFETIME_WRITES_FROM_HOST_LSB);
 
 		printf("%-15d", VS_ATTR_ID_LIFETIME_WRITES_FROM_HOST_MSB << 8 | VS_ATTR_ID_LIFETIME_WRITES_FROM_HOST_LSB);
 
-		sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbLifWrtFrmHost, (uint64_t)lsbLifWrtFrmHost);
+		snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+			 (uint64_t)msbLifWrtFrmHost,
+			 (uint64_t)lsbLifWrtFrmHost);
 		printf(" %s\n", buf);
 
-		sprintf(strBuf, "%s", (print_ext_smart_id(VS_ATTR_ID_LIFETIME_READS_TO_HOST_LSB) + 7));
-		printf("%-40s", strBuf);
+		print_64bit_name(VS_ATTR_ID_LIFETIME_READS_TO_HOST_LSB);
 
 		printf("%-15d", VS_ATTR_ID_LIFETIME_READS_TO_HOST_MSB << 8 | VS_ATTR_ID_LIFETIME_READS_TO_HOST_LSB);
 
-		sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbLifRdToHost, (uint64_t)lsbLifRdToHost);
+		snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+			 (uint64_t)msbLifRdToHost, (uint64_t)lsbLifRdToHost);
 		printf(" %s\n", buf);
 
-		sprintf(strBuf, "%s", (print_ext_smart_id(VS_ATTR_ID_TRIM_COUNT_LSB) + 7));
-		printf("%-40s", strBuf);
+		print_64bit_name(VS_ATTR_ID_TRIM_COUNT_LSB);
 
 		printf("%-15d", VS_ATTR_ID_TRIM_COUNT_MSB << 8 | VS_ATTR_ID_TRIM_COUNT_LSB);
 
-		sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbTrimCnt, (uint64_t)lsbTrimCnt);
+		snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+			 (uint64_t)msbTrimCnt, (uint64_t)lsbTrimCnt);
 		printf(" %s\n", buf);
 
 	}
@@ -496,7 +509,8 @@ static void json_print_smart_log(struct json_object *root, EXTENDED_SMART_INFO_T
 
 	json_object_add_value_int(lbaf, "attribute_id", VS_ATTR_ID_GB_ERASED_MSB << 8 | VS_ATTR_ID_GB_ERASED_LSB);
 
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbGbErased, (uint64_t)lsbGbErased);
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 (uint64_t)msbGbErased, (uint64_t)lsbGbErased);
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(lbafs, lbaf);
 
@@ -507,7 +521,8 @@ static void json_print_smart_log(struct json_object *root, EXTENDED_SMART_INFO_T
 
 	json_object_add_value_int(lbaf, "attribute_id", VS_ATTR_ID_LIFETIME_WRITES_TO_FLASH_MSB << 8 | VS_ATTR_ID_LIFETIME_WRITES_TO_FLASH_LSB);
 
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbLifWrtToFlash, (uint64_t)lsbLifWrtToFlash);
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 (uint64_t)msbLifWrtToFlash, (uint64_t)lsbLifWrtToFlash);
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(lbafs, lbaf);
 
@@ -518,7 +533,8 @@ static void json_print_smart_log(struct json_object *root, EXTENDED_SMART_INFO_T
 
 	json_object_add_value_int(lbaf, "attribute_id", VS_ATTR_ID_LIFETIME_WRITES_FROM_HOST_MSB << 8 | VS_ATTR_ID_LIFETIME_WRITES_FROM_HOST_LSB);
 
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbLifWrtFrmHost, (uint64_t)lsbLifWrtFrmHost);
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 (uint64_t)msbLifWrtFrmHost, (uint64_t)lsbLifWrtFrmHost);
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(lbafs, lbaf);
 
@@ -529,7 +545,8 @@ static void json_print_smart_log(struct json_object *root, EXTENDED_SMART_INFO_T
 
 	json_object_add_value_int(lbaf, "attribute_id", VS_ATTR_ID_LIFETIME_READS_TO_HOST_MSB << 8 | VS_ATTR_ID_LIFETIME_READS_TO_HOST_LSB);
 
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbLifRdToHost, (uint64_t)lsbLifRdToHost);
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 (uint64_t)msbLifRdToHost, (uint64_t)lsbLifRdToHost);
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(lbafs, lbaf);
 
@@ -540,7 +557,8 @@ static void json_print_smart_log(struct json_object *root, EXTENDED_SMART_INFO_T
 
 	json_object_add_value_int(lbaf, "attribute_id", VS_ATTR_ID_TRIM_COUNT_MSB << 8 | VS_ATTR_ID_TRIM_COUNT_LSB);
 
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", (uint64_t)msbTrimCnt, (uint64_t)lsbTrimCnt);
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 (uint64_t)msbTrimCnt, (uint64_t)lsbTrimCnt);
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(lbafs, lbaf);
 }
@@ -607,16 +625,16 @@ static void json_print_smart_log_CF(struct json_object *root, vendor_log_page_CF
 	lbaf = json_create_object();
 	json_object_add_value_string(lbaf, "attribute_name", "Data units read to DRAM namespace");
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", le64_to_cpu(pLogPageCF->AttrCF.DataUnitsReadToDramNamespace.MS__u64),
-		le64_to_cpu(pLogPageCF->AttrCF.DataUnitsReadToDramNamespace.LS__u64));
+	u128_hex_str(buf, sizeof(buf),
+		     &pLogPageCF->AttrCF.DataUnitsReadToDramNamespace);
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(logPages, lbaf);
 
 	lbaf = json_create_object();
 	json_object_add_value_string(lbaf, "attribute_name", "Data units written to DRAM namespace");
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", le64_to_cpu(pLogPageCF->AttrCF.DataUnitsWrittenToDramNamespace.MS__u64),
-		le64_to_cpu(pLogPageCF->AttrCF.DataUnitsWrittenToDramNamespace.LS__u64));
+	u128_hex_str(buf, sizeof(buf),
+		     &pLogPageCF->AttrCF.DataUnitsWrittenToDramNamespace);
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(logPages, lbaf);
 
@@ -739,8 +757,9 @@ static void json_print_stx_smart_log_C0(struct json_object *root, STX_EXT_SMART_
 
 	json_object_add_value_string(lbaf, "attribute_name", "Physical Media Units Written");
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", le64_to_cpu(pLogPageC0->phyMediaUnitsWrt.MS__u64),
-		le64_to_cpu(pLogPageC0->phyMediaUnitsWrt.LS__u64));
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 le64_to_cpu(pLogPageC0->phyMediaUnitsWrt.MS__u64),
+		 le64_to_cpu(pLogPageC0->phyMediaUnitsWrt.LS__u64));
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(logPages, lbaf);
 
@@ -748,8 +767,9 @@ static void json_print_stx_smart_log_C0(struct json_object *root, STX_EXT_SMART_
 	lbaf = json_create_object();
 	json_object_add_value_string(lbaf, "attribute_name", "Physical Media Units Read");
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", le64_to_cpu(pLogPageC0->phyMediaUnitsRd.MS__u64),
-		le64_to_cpu(pLogPageC0->phyMediaUnitsRd.LS__u64));
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 le64_to_cpu(pLogPageC0->phyMediaUnitsRd.MS__u64),
+		 le64_to_cpu(pLogPageC0->phyMediaUnitsRd.LS__u64));
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(logPages, lbaf);
 
@@ -806,10 +826,10 @@ static void json_print_stx_smart_log_C0(struct json_object *root, STX_EXT_SMART_
 	lbaf = json_create_object();
 	json_object_add_value_string(lbaf, "attribute_name", "DSSD Specification Version");
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "%d.%d.%d.%d", pLogPageC0->dssdSpecVerMajor,
-					le16_to_cpu(pLogPageC0->dssdSpecVerMinor),
-					le16_to_cpu(pLogPageC0->dssdSpecVerPoint),
-					pLogPageC0->dssdSpecVerErrata);
+	snprintf(buf, sizeof(buf), "%d.%d.%d.%d", pLogPageC0->dssdSpecVerMajor,
+		 le16_to_cpu(pLogPageC0->dssdSpecVerMinor),
+		 le16_to_cpu(pLogPageC0->dssdSpecVerPoint),
+		 pLogPageC0->dssdSpecVerErrata);
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(logPages, lbaf);
 
@@ -856,16 +876,18 @@ static void json_print_stx_smart_log_C0(struct json_object *root, STX_EXT_SMART_
 	lbaf = json_create_object();
 	json_object_add_value_string(lbaf, "attribute_name", "PLP Start Count");
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", le64_to_cpu(pLogPageC0->plpStartCnt.MS__u64),
-		le64_to_cpu(pLogPageC0->plpStartCnt.LS__u64));
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 le64_to_cpu(pLogPageC0->plpStartCnt.MS__u64),
+		 le64_to_cpu(pLogPageC0->plpStartCnt.LS__u64));
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(logPages, lbaf);
 
 	lbaf = json_create_object();
 	json_object_add_value_string(lbaf, "attribute_name", "Endurance Estimate");
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", le64_to_cpu(pLogPageC0->enduranceEstimate.MS__u64),
-		le64_to_cpu(pLogPageC0->enduranceEstimate.LS__u64));
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 le64_to_cpu(pLogPageC0->enduranceEstimate.MS__u64),
+		 le64_to_cpu(pLogPageC0->enduranceEstimate.LS__u64));
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(logPages, lbaf);
 
@@ -887,8 +909,9 @@ static void json_print_stx_smart_log_C0(struct json_object *root, STX_EXT_SMART_
 	lbaf = json_create_object();
 	json_object_add_value_string(lbaf, "attribute_name", "Log Page GUID");
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "0x%016"PRIx64"%016"PRIx64"", le64_to_cpu(pLogPageC0->logPageGUID.MS__u64),
-		le64_to_cpu(pLogPageC0->logPageGUID.LS__u64));
+	snprintf(buf, sizeof(buf), "0x%016"PRIx64"%016"PRIx64"",
+		 le64_to_cpu(pLogPageC0->logPageGUID.MS__u64),
+		 le64_to_cpu(pLogPageC0->logPageGUID.LS__u64));
 	json_object_add_value_string(lbaf, "attribute_value", buf);
 	json_array_add_value_object(logPages, lbaf);
 }
@@ -901,33 +924,33 @@ static int vs_smart_log(int argc, char **argv, struct command *acmd, struct plug
 	STX_EXT_SMART_LOG_PAGE_C0   ehExtSmart;
 	EXTENDED_SMART_INFO_T   ExtdSMARTInfo;
 	vendor_log_page_CF      logPageCF;
-	struct json_object *root = json_create_object();
-	struct json_object *lbafs = json_create_array();
+	__cleanup_json_object struct json_object *root = NULL;
+	struct json_object *lbafs = NULL;
 	struct json_object *lbafs_ExtSmart, *lbafs_DramSmart;
 
 	const char *desc = "Retrieve the Firmware Activation History for Seagate NVMe drives";
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	nvme_print_flags_t flags;
+	bool found = false;
 	int err, index = 0;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
-	if (err) {
-		nvme_show_error("Device not found");
-		return -1;
-	}
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
+	if (err)
 		return err;
-	}
 
-	if (flags & JSON)
+	flags = nvme_args.output_flags;
+
+	if (flags & JSON) {
 		printf("Seagate Extended SMART Information :\n");
-
+		root = json_create_object();
+		lbafs = json_create_array();
+		json_object_add_value_array(root, "SMART-Attributes", lbafs);
+	}
 
 	/**
 	 * Here we should identify if the drive is a Panthor or Jaguar.
@@ -947,6 +970,7 @@ static int vs_smart_log(int argc, char **argv, struct command *acmd, struct plug
 	if (!stx_is_jag_pan(modelNo)) {
 		err = nvme_get_log_simple(hdl, 0xC4, &ExtdSMARTInfo, sizeof(ExtdSMARTInfo));
 		if (!err) {
+			found = true;
 			if (!(flags & JSON)) {
 				printf("%-39s %-15s %-19s\n", "Description", "Ext-Smart-Id", "Ext-Smart-Value");
 				for (index = 0; index < 80; index++)
@@ -955,11 +979,9 @@ static int vs_smart_log(int argc, char **argv, struct command *acmd, struct plug
 				for (index = 0; index < NUMBER_EXTENDED_SMART_ATTRIBUTES; index++)
 					print_smart_log(ExtdSMARTInfo.Version, ExtdSMARTInfo.vendorData[index], index == (NUMBER_EXTENDED_SMART_ATTRIBUTES - 1));
 
-			} else if (flags & JSON){
+			} else {
 				lbafs_ExtSmart = json_create_object();
 				json_print_smart_log(lbafs_ExtSmart, &ExtdSMARTInfo);
-
-				json_object_add_value_array(root, "SMART-Attributes", lbafs);
 				json_array_add_value_object(lbafs, lbafs_ExtSmart);
 			}
 
@@ -971,16 +993,11 @@ static int vs_smart_log(int argc, char **argv, struct command *acmd, struct plug
 			if (!err) {
 				if (!(flags & JSON)) {
 					print_smart_log_CF(&logPageCF);
-				} else if (flags & JSON) {
+				} else {
 					lbafs_DramSmart = json_create_object();
 					json_print_smart_log_CF(lbafs_DramSmart, &logPageCF);
 					json_array_add_value_object(lbafs, lbafs_DramSmart);
-					json_print_object(root, NULL);
 				}
-			} else if (flags & JSON) {
-				json_print_object(root, NULL);
-				printf("\n");
-				json_free_object(root);
 			}
 		} else if (err > 0) {
 			nvme_show_status(err);
@@ -989,18 +1006,13 @@ static int vs_smart_log(int argc, char **argv, struct command *acmd, struct plug
 		err = nvme_get_log_simple(hdl, 0xC0, &ehExtSmart, sizeof(ehExtSmart));
 
 		if (!err) {
+			found = true;
 			if (!(flags & JSON)) {
 				print_stx_smart_log_C0(&ehExtSmart);
-			} else if (flags & JSON){
+			} else {
 				lbafs_ExtSmart = json_create_object();
 				json_print_stx_smart_log_C0(lbafs_ExtSmart, &ehExtSmart);
-
-				json_object_add_value_array(root, "SMART-Attributes", lbafs);
 				json_array_add_value_object(lbafs, lbafs_ExtSmart);
-
-				json_print_object(root, NULL);
-				printf("\n");
-				json_free_object(root);
 			}
 		}
 
@@ -1008,45 +1020,9 @@ static int vs_smart_log(int argc, char **argv, struct command *acmd, struct plug
 			nvme_show_status(err);
 	}
 
-	err = nvme_get_log_simple(hdl, 0xC4,
-				  &ExtdSMARTInfo, sizeof(ExtdSMARTInfo));
-	if (!err) {
-		if (!(flags & JSON)) {
-			printf("%-39s %-15s %-19s\n", "Description", "Ext-Smart-Id", "Ext-Smart-Value");
-			for (index = 0; index < 80; index++)
-				printf("-");
-			printf("\n");
-			for (index = 0; index < NUMBER_EXTENDED_SMART_ATTRIBUTES; index++)
-				print_smart_log(ExtdSMARTInfo.Version, ExtdSMARTInfo.vendorData[index], index == (NUMBER_EXTENDED_SMART_ATTRIBUTES - 1));
-
-		} else if (flags & JSON) {
-			lbafs_ExtSmart = json_create_object();
-			json_print_smart_log(lbafs_ExtSmart, &ExtdSMARTInfo);
-
-			json_object_add_value_array(root, "SMART-Attributes", lbafs);
-			json_array_add_value_object(lbafs, lbafs_ExtSmart);
-		}
-
-		/**
-		 * Next get Log Page 0xCF
-		 */
-
-		err = nvme_get_log_simple(hdl, 0xCF,
-					  &logPageCF, sizeof(logPageCF));
-		if (!err) {
-			if (!(flags & JSON)) {
-				print_smart_log_CF(&logPageCF);
-			} else if (flags & JSON) {
-				lbafs_DramSmart = json_create_object();
-				json_print_smart_log_CF(lbafs_DramSmart, &logPageCF);
-				json_array_add_value_object(lbafs, lbafs_DramSmart);
-				json_print_object(root, NULL);
-			}
-		} else if (flags & JSON) {
-			json_print_object(root, NULL);
-		}
-	} else if (err > 0) {
-		nvme_show_status(err);
+	if (found && (flags & JSON)) {
+		json_print_object(root, NULL);
+		printf("\n");
 	}
 
 	return err;
@@ -1061,7 +1037,7 @@ static void json_temp_stats(__u32 temperature, __u32 PcbTemp, __u32 SocTemp,
 			    __u32 maxTemperature, __u32 MaxSocTemp,
 			    __u32 cf_err, __u32 scCurrentTemp, __u32 scMaxTem)
 {
-	struct json_object *root = json_create_object();
+	__cleanup_json_object struct json_object *root = json_create_object();
 
 	json_object_add_value_int(root, "Current temperature", temperature);
 	json_object_add_value_int(root, "Current PCB temperature", PcbTemp);
@@ -1091,19 +1067,15 @@ static int temp_stats(int argc, char **argv, struct command *acmd, struct plugin
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
-	if (err) {
-		nvme_show_error("Device not found");
-		return -1;
-	}
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
+	if (err)
 		return err;
-	}
+
+	flags = nvme_args.output_flags;
 
 	if (!(flags & JSON))
 		printf("Seagate Temperature Stats Information :\n");
@@ -1209,7 +1181,7 @@ static void print_vs_pcie_error_log(pcie_error_log_page pcieErrorLog)
 
 static void json_vs_pcie_error_log(pcie_error_log_page pcieErrorLog)
 {
-	struct json_object *root = json_create_object();
+	__cleanup_json_object struct json_object *root = json_create_object();
 	__u32 correctPcieEc = pcieErrorLog.BadDllpErrCnt + pcieErrorLog.BadTlpErrCnt +
 			      pcieErrorLog.RcvrErrCnt + pcieErrorLog.ReplayTOErrCnt +
 			      pcieErrorLog.ReplayNumRolloverErrCnt;
@@ -1254,19 +1226,15 @@ static int vs_pcie_error_log(int argc, char **argv, struct command *acmd, struct
 	int err;
 	nvme_print_flags_t flags;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
-	if (err) {
-		nvme_show_error("Device not found");
-		return -1;
-	}
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
+	if (err)
 		return err;
-	}
+
+	flags = nvme_args.output_flags;
 
 	if (!(flags & JSON))
 		printf("Seagate PCIe error counters Information :\n");
@@ -1391,19 +1359,15 @@ static int stx_vs_fw_activate_history(int argc, char **argv, struct command *acm
 	int err;
 	nvme_print_flags_t flags;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
-	if (err < 0) {
-		nvme_show_error("Device not found");
-		return -1;
-	}
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
+	if (err)
 		return err;
-	}
+
+	flags = nvme_args.output_flags;
 
 	if (!(flags & JSON))
 		printf("Seagate FW Activation History Information :\n");
@@ -1451,14 +1415,14 @@ static int clear_fw_activate_history(int argc, char **argv, struct command *acmd
 		.save         = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("save", 's', &cfg.save, save));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("save", 's', &cfg.save, save),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
-	if (err < 0) {
-		nvme_show_error("Device not found");
-		return -1;
-	}
+	if (err)
+		return err;
 
 	nvme_init_identify_ctrl(&cmd, &ctrl);
 	err = libnvme_exec_admin_passthru(hdl, &cmd);
@@ -1511,14 +1475,14 @@ static int vs_clr_pcie_correctable_errs(int argc, char **argv, struct command *a
 		.save         = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_FLAG("save", 's', &cfg.save, save));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("save", 's', &cfg.save, save),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
-	if (err) {
-		nvme_show_error("Device not found");
-		return -1;
-	}
+	if (err)
+		return err;
 
 
 	nvme_init_identify_ctrl(&cmd, &ctrl);
@@ -1576,10 +1540,13 @@ static int get_host_tele(int argc, char **argv, struct command *acmd, struct plu
 		.log_id       = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id),
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
 		OPT_UINT("log_specific", 'i', &cfg.log_id,       log_specific),
-		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw));
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1681,9 +1648,12 @@ static int get_ctrl_tele(int argc, char **argv, struct command *acmd, struct plu
 		.namespace_id = 0xffffffff,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id),
-		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1794,9 +1764,12 @@ static int vs_internal_log(int argc, char **argv, struct command *acmd, struct p
 		.file         = "",
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id),
-		OPT_FILE("dump-file",    'f', &cfg.file,         file));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_FILE("dump-file",    'f', &cfg.file,         file),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -1876,7 +1849,9 @@ static int seagate_plugin_version(int argc, char **argv, struct command *acmd, s
 	const char *desc = "Prints the Seagate plugin version.";
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -1895,7 +1870,9 @@ static int stx_ocp_plugin_version(int argc, char **argv, struct command *acmd, s
 	const char *desc = "Prints the Seagate OCP plugin version.";
 	int err;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -1972,14 +1949,14 @@ static struct command seagate_plugin_version_cmd = {
 	.name = "plugin-version",
 	.help = "Shows Seagate plugin's version information ",
 	.fn = seagate_plugin_version,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command stx_ocp_plugin_version_cmd = {
 	.name = "cloud-SSD-plugin-version",
 	.help = "Shows OCP Seagate plugin's version information ",
 	.fn = stx_ocp_plugin_version,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command *commands[] = {

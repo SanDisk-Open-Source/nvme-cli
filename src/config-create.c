@@ -182,7 +182,9 @@ int nvme_config_create(const char *desc, int argc, char **argv)
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	struct libnvmf_config_emitter *emitter = NULL;
 	struct libnvmf_params *params = NULL;
-	struct nvmf_args fa = { 0 };
+	struct nvmf_args fa = nvmf_args_defaults();
+	__cleanup_free struct argconfig_commandline_options *nvmf =
+		nvmf_options(&fa);
 	char *output_file = NULL;
 	char *hostsymname = NULL;
 	bool discovery = false;
@@ -193,22 +195,28 @@ int nvme_config_create(const char *desc, int argc, char **argv)
 	const char *target;
 	int err;
 
-	NVMF_ARGS(opts, fa,
+	OPT_ARGS(opts) = {
+		OPT_INCLUDE(nvmf, "Fabrics options"),
 		OPT_FLAG("discovery", 0, &discovery, desc_discovery),
 		OPT_STRING_OPTIONAL("persistent", 0, "no|auto|force",
-			&persistent_arg, desc_persistent),
-		OPT_STRING("host-symname", 0, "STR", &hostsymname, desc_symname),
-		OPT_STRING("output", 0, "FILE", &output_file, desc_output));
+				    &persistent_arg, desc_persistent),
+		OPT_STRING("host-symname", 0, "STR", &hostsymname,
+			   desc_symname),
+		OPT_FILE("output", 0, &output_file, desc_output),
+		OPT_END()
+	};
 
-	nvmf_default_args(&fa);
+	if (!nvmf)
+		return -ENOMEM;
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	persistent = nvmf_resolve_persistent_arg(opts, persistent_arg);
+	persistent = nvmf_resolve_persistent_arg(
+			argconfig_given(opts, &persistent_arg), persistent_arg);
 
-	if (argconfig_parse_seen(opts, "persistent") && !discovery) {
+	if (argconfig_given(opts, &persistent_arg) && !discovery) {
 		nvme_show_error("--persistent requires --discovery");
 		return -EINVAL;
 	}

@@ -24,6 +24,8 @@
 #include <ccan/str/str.h>
 
 #include <daemon-util/log.h>
+#include <daemon-util/resolve.h>
+#include <daemon-util/work.h>
 #include <daemon-util/signals.h>
 #include <shared/array-util.h>
 #include <shared/cleanup-util.h>
@@ -56,6 +58,10 @@
 // and always retry forever.
 #define RETRY_INITIAL_DELAY_SEC 1
 #define RETRY_MAX_DELAY_SEC     300
+
+// Name lookups of the fabrics configuration that run at the same time.
+#define RESOLVE_WORKERS		8
+#define DLP_WORKERS		4
 
 struct active_ctrl {
 	struct list_node entry;
@@ -90,6 +96,9 @@ struct active_ctrl {
 
 	// A DC whose DLP was fetched since nvme-discoverd started.
 	bool dlp_fetched;
+
+	struct dmn_work *dlp_read; // NULL when no DLP read runs
+	bool dlp_again;            // read the DLP again when this read ends
 };
 
 /*
@@ -136,6 +145,7 @@ static void ctrl_free(struct active_ctrl *e)
 		return;
 	sd_event_source_unref(e->retry_timer);
 	sd_event_source_unref(e->epcsd_poll_timer);
+	dmn_work_cancel(e->dlp_read);
 	tid_free(e->tid);
 	free(e->unit_name);
 	free(e->devname);
@@ -382,17 +392,24 @@ static bool release_check_exclusions;
  * an mDNS DC whose DLP is not fetched yet, is never released here. With
  * @release_check_exclusions, also release the controllers that the
  * exclusion list now matches. NBFT controllers are never released.
+ * While a host name of the fabrics configuration is not resolved yet, its
+ * controller looks not desired, so the pass waits for on_config_lookup().
  */
 static int release_undesired(sd_event_source *src,
 			     void *user_data __attribute__((unused)))
 {
-	bool check_exclusions = release_check_exclusions;
 	struct active_ctrl *e, *next;
 	struct saved_ctrl *s, *snext;
+	bool check_exclusions;
 
 	release_pending = false;
-	release_check_exclusions = false;
 	sd_event_source_disable_unref(src);
+
+	if (inventory_config_pending(ctx.inventory))
+		return 0;
+
+	check_exclusions = release_check_exclusions;
+	release_check_exclusions = false;
 
 	list_for_each_safe(&g_ctrls, e, next, entry) {
 		bool desired = inventory_is_desired(ctx.inventory, e->tid);
@@ -601,8 +618,7 @@ static const struct libnvmf_params *params_for(
 						 is_dc);
 }
 
-static void fetch_and_process_dlp(const char *devname,
-				  const struct libnvmf_tid *dc_tid);
+static void dlp_fetch(struct active_ctrl *e);
 static bool devname_matches_tid(const char *devname,
 				const struct libnvmf_tid *tid);
 
@@ -612,8 +628,8 @@ static int adopted_dc_fetch(sd_event_source *src, void *user_data)
 	char *unit_name = user_data;
 	struct active_ctrl *e = ctrl_find_by_unit(unit_name);
 
-	if (e && e->devname)
-		fetch_and_process_dlp(e->devname, e->tid);
+	if (e)
+		dlp_fetch(e);
 
 	free(unit_name);
 	sd_event_source_disable_unref(src);
@@ -661,7 +677,7 @@ static void adopt_ctrl(const char *unit_name, const struct libnvmf_tid *tid,
 			log_warn("%s - cannot defer DLP fetch: %s",
 				 libnvmf_tid_str(tid), strerror(-r));
 			free(name);
-			fetch_and_process_dlp(devname, tid);
+			dlp_fetch(e);
 		}
 	}
 }
@@ -835,41 +851,31 @@ static bool dc_effective_epcsd(const struct dlp_fetch_ctx *fctx,
 
 static void epcsd_park(struct active_ctrl *e);
 
-static void fetch_and_process_dlp(const char *devname,
-				  const struct libnvmf_tid *dc_tid)
+// Process the DLP of the DC @e.
+static void process_dlp(struct active_ctrl *e,
+			const struct nvmf_discovery_log *log)
 {
 	__cleanup_conn_scan struct conn_scan scan = { 0 };
+	const struct libnvmf_tid *dc_tid = e->tid;
 	struct dlp_fetch_ctx fctx = {
 		.via_dc = inventory_config_conn_for(ctx.inventory, dc_tid),
 		.hops = inventory_referral_hops(ctx.inventory, dc_tid),
 	};
-	struct active_ctrl *e = ctrl_find_by_devname(devname);
 	bool epcsd;
-	int r;
 
 	// One snapshot for every entry this log page turns out to hold.
 	conn_scan_load(&scan);
 	fctx.scan = &scan;
 
-	r = dlp_fetch(&ctx, devname, dc_tid, dlp_ioc_callback,
-		      dlp_dc_callback, dlp_self_callback, &fctx);
-
-	/*
-	 * A failed fetch tells nothing about EPCSD or the DC's entries, so
-	 * keep the DC and its last list.
-	 */
-	if (r < 0) {
-		tid_list_free_items(&fctx.iocs);
-		tid_list_free_items(&fctx.referrals);
-		return;
-	}
+	dlp_process_log(log, dc_tid, dlp_ioc_callback, dlp_dc_callback,
+			dlp_self_callback, &fctx);
 
 	epcsd = dc_effective_epcsd(&fctx, e);
 	log_dbg("%s: self entry %s, effective EPCSD=%d",
 		libnvmf_tid_str(dc_tid), fctx.self_seen ? "seen" : "absent",
 		epcsd);
 
-	if (e && e->is_dc && !epcsd) {
+	if (e->is_dc && !epcsd) {
 		if (e->force_persistent)
 			log_info_once(&e->force_persistent_logged,
 					"%s - EPCSD=0, but persistent=force: staying connected",
@@ -883,13 +889,65 @@ static void fetch_and_process_dlp(const char *devname,
 	    tid_list_append(&fctx.referrals, NULL) == 0) {
 		inventory_update_dlp(ctx.inventory, dc_tid, fctx.iocs.items,
 				     fctx.referrals.items);
-		if (e)
-			e->dlp_fetched = true;
+		e->dlp_fetched = true;
 		schedule_release(false);
 	} else {
 		tid_list_free_items(&fctx.iocs);
 		tid_list_free_items(&fctx.referrals);
 	}
+}
+
+static int log_level(void)
+{
+	return ctx.force_debug ? DMN_LOG_DEBUG : ctx.cfg->debug_level;
+}
+
+static void on_dlp_read(int ret, const struct nvmf_discovery_log *log,
+			void *user_data)
+{
+	struct active_ctrl *e = user_data;
+
+	e->dlp_read = NULL;
+
+	/*
+	 * A failed read tells nothing about EPCSD or the DC's entries, so
+	 * keep the DC and its last list.
+	 */
+	if (ret < 0)
+		log_warn("%s | %s - cannot read the discovery log: %s",
+			 libnvmf_tid_str(e->tid), e->devname ? e->devname : "-",
+			 strerror(-ret));
+	else
+		process_dlp(e, log);
+
+	if (e->dlp_again) {
+		e->dlp_again = false;
+		dlp_fetch(e);
+	}
+}
+
+/*
+ * Read the DLP of the DC @e, then process it. The read waits for the DC,
+ * so it runs in a worker and the event loop goes on. One read at a time
+ * per DC: a request during a read reads the DLP again when it ends.
+ */
+static void dlp_fetch(struct active_ctrl *e)
+{
+	int r;
+
+	if (!e->devname)
+		return;
+
+	if (e->dlp_read) {
+		e->dlp_again = true;
+		return;
+	}
+
+	r = dlp_read(ctx.dlp_pool, e->devname, log_level(), on_dlp_read, e,
+		     &e->dlp_read);
+	if (r < 0)
+		log_warn("%s | %s - cannot read the discovery log: %s",
+			 libnvmf_tid_str(e->tid), e->devname, strerror(-r));
 }
 
 /*
@@ -1121,7 +1179,7 @@ static void dc_connected(struct active_ctrl *e, const char *devname)
 	 * address the kernel selected, which the configuration did not ask
 	 * for.
 	 */
-	fetch_and_process_dlp(devname, e->tid);
+	dlp_fetch(e);
 }
 
 static void on_job_done(const char *unit_name, bool success,
@@ -1178,20 +1236,64 @@ static void on_dc_add(const char *devname,
 		dc_connected(e, devname);
 }
 
-static void on_dc_changed(const char *devname,
+/*
+ * A DC that nobody owns, e.g. from a manual "nvme discover --persistent".
+ * Without the legacy udev rules, nothing else handles its events. Run
+ * connect-all for it, as those rules do. The connections it makes stay
+ * unowned, like the DC.
+ */
+static void dc_changed_unowned(const char *devname, sd_device *dev)
+{
+	__cleanup_free char *owner = NULL;
+	struct dc_addr addr = { };
+	int r;
+
+	r = libnvmf_registry_retrieve(ctx.nvme_ctx, devname, "owner", &owner);
+	if (r < 0 && r != -ENOENT) {
+		log_warn("%s - failed to check registry owner: %s",
+			 devname, strerror(-r));
+		return;
+	}
+	if (owner) {
+		log_dbg("%s - discovery log changed, owned by '%s', skipping",
+			devname, owner);
+		return;
+	}
+
+	sd_device_get_property_value(dev, "NVME_TRTYPE", &addr.transport);
+	sd_device_get_property_value(dev, "NVME_TRADDR", &addr.traddr);
+	sd_device_get_property_value(dev, "NVME_TRSVCID", &addr.trsvcid);
+	sd_device_get_property_value(dev, "NVME_HOST_TRADDR",
+				     &addr.host_traddr);
+	sd_device_get_property_value(dev, "NVME_HOST_IFACE",
+				     &addr.host_iface);
+
+	log_info("%s - discovery log changed on an unowned DC, running connect-all",
+		 devname);
+	r = unit_start_connect_all(ctx.umgr, devname, &addr);
+	if (r < 0)
+		log_err("%s - failed to start connect-all: %s",
+			devname, strerror(-r));
+}
+
+static void on_dc_changed(const char *devname, sd_device *dev,
 			  void *user_data __attribute__((unused)))
 {
 	struct active_ctrl *e;
 
 	e = ctrl_find_by_devname(devname);
-	if (!e || !e->tid) {
+	if (!e) {
+		dc_changed_unowned(devname, dev);
+		return;
+	}
+	if (!e->tid) {
 		log_warn("%s - dc_changed for untracked device", devname);
 		return;
 	}
 
 	log_dbg("%s | %s: discovery log changed, re-fetching",
 		libnvmf_tid_str(e->tid), devname);
-	fetch_and_process_dlp(devname, e->tid);
+	dlp_fetch(e);
 }
 
 static void on_ioc_add(const char *devname,
@@ -1578,9 +1680,21 @@ static void connect_desired(void)
  * is used. Called at startup after config_load() and again after a SIGHUP
  * reload, since the libnvme context outlives any single config.
  */
+/*
+ * A name lookup of the fabrics configuration ended. Connect what it added,
+ * and run the release pass that waited for it.
+ */
+static void on_config_lookup(bool added,
+			     void *user_data __attribute__((unused)))
+{
+	if (added)
+		connect_desired();
+	schedule_release(false);
+}
+
 static void apply_log_level(void)
 {
-	int level = ctx.force_debug ? DMN_LOG_DEBUG : ctx.cfg->debug_level;
+	int level = log_level();
 
 	dmn_log_set_level(level);
 	libnvme_set_logging_level(ctx.nvme_ctx, level, false, false);
@@ -1771,9 +1885,22 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	r = dmn_resolver_new(ctx.event, RESOLVE_WORKERS, &ctx.resolver);
+	if (r < 0) {
+		log_err("failed to create the resolver: %s", strerror(-r));
+		return 1;
+	}
+
+	r = dmn_work_pool_new(ctx.event, DLP_WORKERS, &ctx.dlp_pool);
+	if (r < 0) {
+		log_err("failed to create the DLP workers: %s", strerror(-r));
+		return 1;
+	}
+
 	ctx.inventory = inventory_new();
 	if (!ctx.inventory)
 		return 1;
+	inventory_set_lookup_callback(ctx.inventory, on_config_lookup, NULL);
 
 	if (ctx.cfg->nbft)
 		inventory_load_nbft(ctx.inventory, &ctx, NBFT_SYSFS_PATH);
@@ -1839,6 +1966,8 @@ int main(int argc, char **argv)
 	free(nvme_path_abs);
 	free(config_path_abs);
 	inventory_free(ctx.inventory);
+	dmn_resolver_free(ctx.resolver);
+	dmn_work_pool_free(ctx.dlp_pool);
 	free(ctx.hostnqn);
 	free(ctx.hostid);
 	config_free(ctx.cfg);

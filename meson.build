@@ -35,6 +35,27 @@ cc = meson.get_compiler('c')
 cxx_available = add_languages('cpp', required: false, native: false)
 host_system = host_machine.system()
 
+# Sanitizer and fuzzing builds fail late, with misleading linker errors,
+# in some setups. Catch them here.
+if get_option('b_sanitize') != 'none' or get_option('fuzzing')
+    # The C++ tests link with the C++ compiler. With a different toolchain
+    # than the C compiler, the sanitizer runtimes do not match.
+    if cxx_available
+        cxx_id = meson.get_compiler('cpp').get_id()
+        if cxx_id != cc.get_id()
+            error('The C compiler is @0@, but the C++ compiler is @1@. '.format(
+                      cc.get_id(), cxx_id) +
+                  'Sanitizer and fuzzing builds need both from the same ' +
+                  'toolchain, e.g. CC=clang CXX=clang++')
+        endif
+    endif
+    # clang links the sanitizer runtime only into executables, so a shared
+    # library has undefined symbols, which -Wl,--no-undefined rejects.
+    if cc.get_id() == 'clang' and get_option('b_lundef')
+        error('Sanitizer and fuzzing builds with clang need -Db_lundef=false')
+    endif
+endif
+
 ################################################################################
 # Determine which features we need to build: The nvme executable, the libnvme
 # library, and/or the python bindings. These are controlled by the following
@@ -448,6 +469,9 @@ keysd_opt = keysd_opt.require(
 keysd_opt = keysd_opt.require(openssl_dep.found() and keyutils_dep.found(),
     error_message: 'nvme-keysd requires OpenSSL and libkeyutils')
 want_keysd = keysd_opt.allowed()
+want_kmip = get_option('kmip').require(want_keysd,
+    error_message: 'kmip requires nvme-keysd').allowed()
+conf.set('CONFIG_KMIP', want_kmip, description: 'Is the KMIP key source enabled')
 conf.set('CONFIG_DISCOVERD', want_discoverd, description: 'Is nvme-discoverd enabled')
 conf.set('CONFIG_KEYSD', want_keysd, description: 'Is nvme-keysd enabled')
 
@@ -653,6 +677,20 @@ if host_system == 'windows'
     )
 endif
 
+# Coverage for the libFuzzer builds of the fuzz targets in tests/fuzz
+if get_option('fuzzing')
+    if cc.get_id() != 'clang'
+        error('-Dfuzzing=true needs clang')
+    endif
+    # The coverage hooks of all code but the fuzz targets come from the
+    # sanitizer runtime.
+    if get_option('b_sanitize') == 'none'
+        error('-Dfuzzing=true needs a sanitizer, ' +
+              'e.g. -Db_sanitize=address,undefined')
+    endif
+    add_project_arguments('-fsanitize=fuzzer-no-link', language : 'c')
+endif
+
 substs = configuration_data()
 substs.set('VERSION', meson.project_version())
 substs.set('NVMECLI_LICENSE', meson.project_license()[0])
@@ -670,6 +708,11 @@ substs.set('SYSTEMCTL', get_option('systemctl'))
 # mDNS uses systemd-resolved, so nvme-discoverd must start after it.
 substs.set('DISCOVERD_AFTER_RESOLVED',
            want_mdns ? 'After=systemd-resolved.service' : '')
+# nvme-keysd calls nvme-keysd-kmip through its socket.
+substs.set('KEYSD_WANTS_KMIP',
+           want_kmip ? 'Wants=nvme-keysd-kmip.socket' : '')
+substs.set('KEYSD_AFTER_KMIP',
+           want_kmip ? 'After=nvme-keysd-kmip.socket' : '')
 substs.set('PREFIX', prefixdir)
 substs.set('URL', 'https://github.com/linux-nvme/nvme-cli/')
 substs.set('LIBNVME_API_NAME', libnvme_api_name)
@@ -722,7 +765,7 @@ if want_nvme
 
     nvme_exe = executable(
         'nvme',
-        sources,
+        sources + ['src/main.c'],
         include_directories: 'src',
         dependencies: link_deps,
         link_args: link_args_list,
@@ -914,6 +957,7 @@ if want_tests and py3_prog.found()
             files('scripts/check-install-tags.py'),
             meson.project_build_root(),
         ],
+        suite: 'check',
     )
 endif
 
@@ -964,6 +1008,7 @@ wanted_dict = {
     'nvme-discoverd':   want_discoverd,
     'mdns':             want_mdns,
     'nvme-keysd':       want_keysd,
+    'kmip':             want_kmip,
     'nvmf-autoconnect': want_nvmf_autoconnect,
     'deprecated-cmds':  want_deprecated_cmds,
     'python bindings ': want_python,

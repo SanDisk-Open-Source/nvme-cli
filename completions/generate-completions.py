@@ -20,7 +20,7 @@ import sys
 
 
 # Metadata schema version this generator understands; reject anything else.
-SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSION = 2
 
 
 # ---------------------------------------------------------------------------
@@ -53,15 +53,8 @@ def cmd_names(cmd):
     return [n for n in (s.strip() for s in names) if n]
 
 
-# Completion values for options the metadata carries none for. Keyed by long
-# option name, applied to every command with it, so only list values that are
-# uniform across all commands.
-# NOTE: This is a stopgap. These should probably be defined in the C option
-# definitions (OPT_VALS) so they flow through the metadata for all tooling.
-VALUE_HINTS = {
-    "output-format-version": ["1", "2"],
-    "sel": ["0", "1", "2", "3"],
-}
+# An option whose range holds at most this many numbers gets them offered.
+MAX_RANGE_VALUES = 16
 
 # help and version are matched as literal strings in the C dispatcher, not
 # registered in any command table, so dump-command-metadata never reports them.
@@ -75,14 +68,16 @@ def command_options(cmd):
     Hidden options are always skipped: they are accepted on the command line
     but suppressed from --help, so they should not be offered as completions.
 
-    Options that have no enforced value set but do have a completion hint (see
-    VALUE_HINTS) are yielded with that hint filled into "values".
+    An option with a small "range" is yielded with its numbers in "values",
+    ahead of its names.
     """
     for opt in cmd.get("options", []):
         if opt.get("hidden"):
             continue
-        if "values" not in opt and opt["long"] in VALUE_HINTS:
-            opt = dict(opt, values=VALUE_HINTS[opt["long"]])
+        rng = opt.get("range")
+        if rng and rng["max"] - rng["min"] < MAX_RANGE_VALUES:
+            numbers = [str(n) for n in range(rng["min"], rng["max"] + 1)]
+            opt = dict(opt, values=numbers + opt.get("values", []))
         yield opt
 
 
@@ -217,6 +212,7 @@ BASH_FUNC_PREAMBLE = '''\
 {func} () {{
 \tlocal opts=""
 \tlocal valopts=""
+\tlocal listopts=""
 \tlocal vals=""
 \tlocal opt=""
 \tlocal val=""
@@ -226,6 +222,7 @@ BASH_FUNC_PREAMBLE = '''\
 
 \tlocal completing_value=0
 \tlocal wantfiles=0
+\tlocal nodevice=0
 \t_nvme_detect_value_completion
 '''
 
@@ -269,6 +266,7 @@ _nvme_finish_completion () {
 \t\t\t[[ ${words[i]} == /dev/nvme* ]] && has_device=1
 \t\tdone
 \t\tif [[ $nonopt_args -ge $2 ]] && [[ $has_device -eq 0 ]] && \\
+\t\t   [[ $nodevice -eq 0 ]] && \\
 \t\t   [[ "$1" != "help" ]] && [[ "$1" != "version" ]]; then
 \t\t\topts="/dev/nvme* $opts"
 \t\tfi
@@ -276,7 +274,12 @@ _nvme_finish_completion () {
 
 \tif [[ $completing_value -eq 1 ]]; then
 \t\tif [[ $vals != " " ]]; then
-\t\t\tCOMPREPLY+=( $( compgen -W "$vals" -- "$val" ) )
+\t\t\t# A list of names completes the name after its last comma.
+\t\t\tlocal pre=""
+\t\t\tif [[ " $listopts " == *" $opt "* ]] && [[ $val == *,* ]]; then
+\t\t\t\tpre="${val%,*},"
+\t\t\tfi
+\t\t\tCOMPREPLY+=( $( compgen -P "$pre" -W "$vals" -- "${val#"$pre"}" ) )
 \t\telif [[ $wantfiles -eq 1 ]]; then
 \t\t\t: # value is a filename; let 'complete -o default' offer files
 \t\telse
@@ -345,9 +348,14 @@ def bash_valopt_words(opts):
     return out
 
 
+def opt_is_list(opt):
+    """True if the option takes a comma-separated list of its values."""
+    return opt.get("type") == "enum-list"
+
+
 def opt_is_file(opt):
     """True if the option's value is a filename/path we can file-complete."""
-    return opt.get("metavar") in ("FILE", "DIRECTORY")
+    return opt.get("type") in ("file", "directory")
 
 
 def opt_spellings(opt):
@@ -371,6 +379,9 @@ def bash_option_body(opts):
     valwords = bash_valopt_words(opts)
     if valwords:
         out += f'\t\t\tvalopts+="{valwords}"\n'
+    listwords = " ".join(opt_spellings(o) for o in opts if opt_is_list(o))
+    if listwords:
+        out += f'\t\t\tlistopts+=" {listwords}"\n'
     if val_opts or file_opts:
         out += "\n"
     if val_opts:
@@ -389,6 +400,11 @@ def bash_option_body(opts):
     return out
 
 
+def takes_device(cmd):
+    """Whether the command takes a device operand, required or optional."""
+    return cmd.get("device", "required") != "none"
+
+
 def emit_bash_command_group(out, commands, func, device_argpos):
     out.write(BASH_FUNC_PREAMBLE.format(func=func))
 
@@ -403,6 +419,8 @@ def emit_bash_command_group(out, commands, func, device_argpos):
     clauses = []
     for c in sorted_commands(commands):
         clause_body = bash_option_body(sorted_options(command_options(c)))
+        if not takes_device(c):
+            clause_body += '\t\t\tnodevice=1\n'
         if not clause_body:
             continue
         label = "|".join(f'"{n}"' for n in cmd_names(c))
@@ -547,6 +565,25 @@ ZSH_HELPERS = '''\
 \t\treturn 1
 \t}
 
+\t# Like _nvme_opt_vals, for an option which takes a comma-separated list
+\t# of its values.
+\t_nvme_opt_list() {
+\t\tlocal -a names
+\t\tlocal name
+\t\twhile (( $# >= 2 )); do
+\t\t\tnames=(${=1})
+\t\t\tfor name in "${names[@]}"; do
+\t\t\t\tif [[ ${words[CURRENT]} == ${name}=* ]] || \\
+\t\t\t\t   [[ ${words[CURRENT-1]} == "${name}" ]]; then
+\t\t\t\t\t_values -s , '' ${=2}
+\t\t\t\t\treturn 0
+\t\t\t\tfi
+\t\t\tdone
+\t\t\tshift 2
+\t\tdone
+\t\treturn 1
+\t}
+
 \t# Complete an option's value as a filename, in both the attached
 \t# ('--opt=path', '-o=path') and separate-word ('--opt path', '-o path') forms.
 \t# Each argument is a space-separated spelling list ('--fw -f'); if the word
@@ -600,18 +637,22 @@ def zsh_var(plugin, cmd):
 
 def emit_zsh_value_completions(out, tab, cmd):
     """Emit a single _nvme_opt_vals call listing the command's value-set options
-    as alternating spelling/value-list pairs."""
-    pairs = [f'"{opt_spellings(o)}" "{" ".join(o["values"])}"'
-             for o in sorted_options(command_options(cmd)) if o.get("values")]
-    if not pairs:
-        return
-    if len(pairs) == 1:
-        out.write(f'{tab}_nvme_opt_vals {pairs[0]} && return\n')
-    else:
-        # Continuation lines align under the first argument.
-        cont = tab + " " * len("_nvme_opt_vals ")
-        joined = f" \\\n{cont}".join(pairs)
-        out.write(f'{tab}_nvme_opt_vals {joined} && return\n')
+    as alternating spelling/value-list pairs, and a _nvme_opt_list call for
+    the options which take a list of values."""
+    opts = [o for o in sorted_options(command_options(cmd)) if o.get("values")]
+    for func, want_list in (("_nvme_opt_vals", False),
+                            ("_nvme_opt_list", True)):
+        pairs = [f'"{opt_spellings(o)}" "{" ".join(o["values"])}"'
+                 for o in opts if opt_is_list(o) == want_list]
+        if not pairs:
+            continue
+        if len(pairs) == 1:
+            out.write(f'{tab}{func} {pairs[0]} && return\n')
+        else:
+            # Continuation lines align under the first argument.
+            cont = tab + " " * len(func + " ")
+            joined = f" \\\n{cont}".join(pairs)
+            out.write(f'{tab}{func} {joined} && return\n')
 
 
 def emit_zsh_file_completions(out, tab, cmd):
@@ -641,9 +682,12 @@ def emit_zsh_command_clause(out, tab, path, cmd):
     out.write(f'{tab}({"|".join(names)})\n')
 
     opts = sorted_options(command_options(cmd))
+    device = f"{body}_nvme_has_device || compadd -- /dev/nvme*(N)\n"
+    if not takes_device(cmd):
+        device = ""
     if not opts:
         # No options to offer, but still complete a device argument.
-        out.write(f"{body}_nvme_has_device || compadd -- /dev/nvme*(N)\n")
+        out.write(device)
         out.write(f"{body};;\n\n")
         return
 
@@ -665,7 +709,7 @@ def emit_zsh_command_clause(out, tab, path, cmd):
     out.write(f"{body}_arguments '*:: :->subcmds'\n")
     plabel = f"nvme {path + ' ' if path else ''}{name} options"
     out.write(f'{body}_nvme_describe "{plabel}" {var}\n')
-    out.write(f"{body}_nvme_has_device || compadd -- /dev/nvme*(N)\n")
+    out.write(device)
     out.write(f"{body};;\n\n")
 
 
@@ -816,9 +860,16 @@ Register-ArgumentCompleter -Native -CommandName nvme -ScriptBlock {
         if ($prevToken -like '-*') {
             $valKey = "$key $prevToken"
             if ($script:NvmeOptionValues.ContainsKey($valKey)) {
+                # A list of names completes the name after its last comma.
+                $pre = ''
+                if ($script:NvmeListOptions.ContainsKey($valKey) -and
+                    $wordToComplete -match '^(.*,)') {
+                    $pre = $Matches[1]
+                }
+                $last = $wordToComplete.Substring($pre.Length)
                 return $script:NvmeOptionValues[$valKey] |
-                    Where-Object { $_ -like "$wordToComplete*" } |
-                    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+                    Where-Object { $_ -like "$last*" } |
+                    ForEach-Object { [System.Management.Automation.CompletionResult]::new("$pre$_", $_, 'ParameterValue', $_) }
             }
             if ($script:NvmeFileOptions.ContainsKey($valKey)) {
                 return Get-ChildItem -Path "$wordToComplete*" -ErrorAction SilentlyContinue |
@@ -838,9 +889,15 @@ Register-ArgumentCompleter -Native -CommandName nvme -ScriptBlock {
         $valPrefix = $Matches[2]
         $valKey = "$key $optPart"
         if ($script:NvmeOptionValues.ContainsKey($valKey)) {
+            $pre = ''
+            if ($script:NvmeListOptions.ContainsKey($valKey) -and
+                $valPrefix -match '^(.*,)') {
+                $pre = $Matches[1]
+            }
+            $last = $valPrefix.Substring($pre.Length)
             return $script:NvmeOptionValues[$valKey] |
-                Where-Object { $_ -like "$valPrefix*" } |
-                ForEach-Object { [System.Management.Automation.CompletionResult]::new("$optPart=$_", $_, 'ParameterValue', $_) }
+                Where-Object { $_ -like "$last*" } |
+                ForEach-Object { [System.Management.Automation.CompletionResult]::new("$optPart=$pre$_", $_, 'ParameterValue', $_) }
         }
         if ($script:NvmeFileOptions.ContainsKey($valKey)) {
             return Get-ChildItem -Path "$valPrefix*" -ErrorAction SilentlyContinue |
@@ -858,8 +915,9 @@ Register-ArgumentCompleter -Native -CommandName nvme -ScriptBlock {
         $results = @($script:NvmeOptions[$key] | Where-Object { $_ -like "$wordToComplete*" } |
             ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_) })
         # Offer a device-path hint for commands that take a device argument
-        # (everything except help/version, which are handled above).
-        if ('/dev/nvme' -like "$wordToComplete*") {
+        # (help/version are handled above).
+        if ('/dev/nvme' -like "$wordToComplete*" -and
+            -not $script:NvmeNoDevice.ContainsKey($key)) {
             $results += [System.Management.Automation.CompletionResult]::new(
                 '/dev/nvme', '/dev/nvme', 'ParameterValue', 'NVMe device (e.g. /dev/nvme0, /dev/nvme0n1)')
         }
@@ -919,6 +977,16 @@ def generate_powershell(model, out):
         out.write(f"    '{key}' = @({opts})\n")
     out.write("}\n")
 
+    out.write("\n$script:NvmeNoDevice = @{\n")
+    no_device = [ps_escape(n) for c in builtin_commands(model)
+                 if not takes_device(c) for n in cmd_names(c)]
+    no_device += [ps_escape("%s %s" % (p["name"], n)) for p in plugins(model)
+                  for c in p["commands"] if not takes_device(c)
+                  for n in cmd_names(c)]
+    for key in sorted(no_device):
+        out.write(f"    '{key}' = $true\n")
+    out.write("}\n")
+
     out.write("\n$script:NvmeFileOptions = @{\n")
     file_entries = []
     for c in builtin_commands(model):
@@ -940,6 +1008,23 @@ def generate_powershell(model, out):
                     if o.get("short"):
                         file_entries.append(f"{key} -{o['short']}")
     for entry in sorted(file_entries):
+        out.write(f"    '{entry}' = $true\n")
+    out.write("}\n")
+
+    out.write("\n$script:NvmeListOptions = @{\n")
+    list_entries = []
+    for prefix, c in ([("", c) for c in builtin_commands(model)] +
+                      [(p["name"] + " ", c) for p in plugins(model)
+                       for c in p["commands"]]):
+        for o in command_options(c):
+            if not opt_is_list(o):
+                continue
+            for n in cmd_names(c):
+                key = ps_escape(prefix + n)
+                list_entries.append(f"{key} --{o['long']}")
+                if o.get("short"):
+                    list_entries.append(f"{key} -{o['short']}")
+    for entry in sorted(list_entries):
         out.write(f"    '{entry}' = $true\n")
     out.write("}\n")
 

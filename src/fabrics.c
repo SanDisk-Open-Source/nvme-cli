@@ -21,7 +21,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <inttypes.h>
 #include <libgen.h>
 #include <net/if.h>
@@ -54,6 +53,7 @@
 #include <shared/io-util.h>
 #include <shared/net-util.h>
 #include <shared/sig-util.h>
+#include <shared/string-util.h>
 
 #include "cleanup.h"
 #include "config-convert.h"
@@ -71,12 +71,90 @@
 static char *raw;
 
 static const char *nvmf_config_file	= "Use specified INI configuration file (auto-converts a legacy .json) or 'none' to disable";
+static const char *nvmf_persistent =
+	"persistent discovery connection (default: auto; =no disables)";
 static const char *nvmf_config_file_ro	= "INI configuration file (default: " PATH_NVMF_INI ")";
 
-void nvmf_default_args(struct nvmf_args *fa)
+/*
+ * The fabrics options, which store into nvmf_tmpl. nvmf_options() binds
+ * them to the struct nvmf_args of a command.
+ */
+static struct nvmf_args nvmf_tmpl;
+
+static struct argconfig_commandline_options nvmf_template[] = {
+	OPT_STRING("transport", 't', "STR", &nvmf_tmpl.transport,
+		   DESC_NVMF_TPORT),
+	OPT_STRING("nqn", 'n', "STR", &nvmf_tmpl.subsysnqn,
+		   DESC_NVMF_NQN),
+	OPT_STRING("traddr", 'a', "STR", &nvmf_tmpl.traddr,
+		   DESC_NVMF_TRADDR),
+	OPT_STRING("trsvcid", 's', "STR", &nvmf_tmpl.trsvcid,
+		   DESC_NVMF_TRSVCID),
+	OPT_STRING("host-traddr", 'w', "STR", &nvmf_tmpl.host_traddr,
+		   DESC_NVMF_HTRADDR),
+	OPT_STRING("host-iface", 'f', "STR", &nvmf_tmpl.host_iface,
+		   DESC_NVMF_HIFACE),
+	OPT_STRING("hostnqn", 'q', "STR", &nvmf_tmpl.hostnqn,
+		   DESC_NVMF_HOSTNQN),
+	OPT_STRING("hostid", 'I', "STR", &nvmf_tmpl.hostid,
+		   DESC_NVMF_HOSTID),
+	OPT_STRING("kxchap-secret", 'S', "STR", &nvmf_tmpl.hostkey,
+		   DESC_NVMF_HOSTKEY, .old_name = "dhchap-secret"),
+	OPT_STRING("kxchap-ctrl-secret", 'C', "STR", &nvmf_tmpl.ctrlkey,
+		   DESC_NVMF_CTRLKEY, .old_name = "dhchap-ctrl-secret"),
+	OPT_STRING("keyring", 0, "STR", &nvmf_tmpl.keyring,
+		   DESC_NVMF_KEYRING),
+	OPT_STRING("tls-key", 0, "STR", &nvmf_tmpl.tls_key,
+		   DESC_NVMF_TLS_KEY),
+	OPT_STRING("tls-key-identity", 0, "STR", &nvmf_tmpl.tls_key_identity,
+		   DESC_NVMF_TLS_KEY_IDENTITY),
+	OPT_INT("nr-io-queues", 'i', &nvmf_tmpl.nr_io_queues,
+		DESC_NVMF_NR_IO_QUEUES),
+	OPT_INT("nr-write-queues", 'W', &nvmf_tmpl.nr_write_queues,
+		DESC_NVMF_NR_WRITE_QUEUES),
+	OPT_INT("nr-poll-queues", 'P', &nvmf_tmpl.nr_poll_queues,
+		DESC_NVMF_NR_POLL_QUEUES),
+	OPT_INT("queue-size", 'Q', &nvmf_tmpl.queue_size,
+		DESC_NVMF_QUEUE_SIZE),
+	OPT_INT("keep-alive-tmo", 'k', &nvmf_tmpl.keep_alive_tmo,
+		DESC_NVMF_KEEP_ALIVE_TMO),
+	OPT_INT("reconnect-delay", 'c', &nvmf_tmpl.reconnect_delay,
+		DESC_NVMF_RECONNECT_DELAY),
+	OPT_INT("ctrl-loss-tmo", 'l', &nvmf_tmpl.ctrl_loss_tmo,
+		DESC_NVMF_CTRL_LOSS_TMO),
+	OPT_INT("fast-io-fail-tmo", 'F', &nvmf_tmpl.fast_io_fail_tmo,
+		DESC_NVMF_FAST_IO_FAIL_TMO, .old_name = "fast_io_fail_tmo"),
+	OPT_INT("tos", 'T', &nvmf_tmpl.tos,
+		DESC_NVMF_TOS),
+	OPT_INT("tls_key", 0, &nvmf_tmpl.tls_key_id,
+		DESC_NVMF_TLS_KEY_LEGACY),
+	OPT_FLAG("duplicate-connect", 'D', &nvmf_tmpl.duplicate_connect,
+		 DESC_NVMF_DUP_CONNECT),
+	OPT_FLAG("disable-sqflow", 0, &nvmf_tmpl.disable_sqflow,
+		 DESC_NVMF_DISABLE_SQFLOW),
+	OPT_FLAG("hdr-digest", 'g', &nvmf_tmpl.hdr_digest,
+		 DESC_NVMF_HDR_DIGEST),
+	OPT_FLAG("data-digest", 'G', &nvmf_tmpl.data_digest,
+		 DESC_NVMF_DATA_DIGEST),
+	OPT_FLAG("tls", 0, &nvmf_tmpl.tls,
+		 DESC_NVMF_TLS),
+	OPT_FLAG("concat", 0, &nvmf_tmpl.concat,
+		 DESC_NVMF_CONCAT),
+	OPT_END()
+};
+
+struct nvmf_args nvmf_args_defaults(void)
 {
-	fa->tos = -1;
-	fa->ctrl_loss_tmo = NVMF_DEF_CTRL_LOSS_TMO;
+	return (struct nvmf_args) {
+		.tos = -1,
+		.ctrl_loss_tmo = NVMF_DEF_CTRL_LOSS_TMO,
+	};
+}
+
+struct argconfig_commandline_options *nvmf_options(struct nvmf_args *fa)
+{
+	return argconfig_bind(nvmf_template, &nvmf_tmpl, sizeof(nvmf_tmpl),
+			      fa);
 }
 
 void nvmf_args_to_params(struct libnvmf_params *params,
@@ -149,8 +227,9 @@ static void save_discovery_log(char *raw, const struct nvmf_discovery_log *log)
 {
 	__cleanup_free char *path = NULL;
 	static unsigned int save_count;
-	int fd, len, ret;
+	int fd, ret;
 	uint64_t numrec;
+	size_t len;
 
 	if (save_count) {
 		if (asprintf(&path, "%s.%u", raw, save_count) < 0) {
@@ -542,7 +621,7 @@ static void consume_conn(const struct libnvmf_config_conn *conn,
 	} else {
 		err = libnvmf_connect(st->ctx, fctx);
 	}
-	if (err == -ENVME_CONNECT_ALREADY)
+	if (err == -ENVME_CONNECT_ALREADY || err == -ENVME_CONNECT_DRY_RUN)
 		err = 0;
 
 record_err:
@@ -554,10 +633,9 @@ record_err:
 	}
 }
 
-const char *nvmf_resolve_persistent_arg(
-		struct argconfig_commandline_options *opts, const char *arg)
+const char *nvmf_resolve_persistent_arg(bool given, const char *arg)
 {
-	if (!argconfig_parse_seen(opts, "persistent"))
+	if (!given)
 		return "auto";
 
 	return arg ? arg : "auto";
@@ -565,9 +643,10 @@ const char *nvmf_resolve_persistent_arg(
 
 /*
  * Parse one discovery.conf line -- the same argv-style syntax 'nvme
- * discover'/'connect-all' accept, reusing NVMF_ARGS so every short and long
- * form works identically to real usage -- and hand the parsed arguments to
- * nvme_config_convert_discovery_args(). @line is modified in place (strsep()).
+ * discover'/'connect-all' accept, reusing nvmf_options() so every short
+ * and long form works identically to real usage -- and hand the parsed
+ * arguments to nvme_config_convert_discovery_args(). @line is modified in
+ * place (shr_strsep()).
  *
  * A blank line, a comment, or one with neither transport nor traddr is
  * silently skipped (0, nothing added), tolerating a discovery.conf that
@@ -576,29 +655,30 @@ const char *nvmf_resolve_persistent_arg(
 int nvmf_convert_discovery_line(struct libnvmf_config_emitter *emitter,
 		char *line)
 {
-	struct nvmf_args fa = { 0 };
+	struct nvmf_args fa = nvmf_args_defaults();
+	__cleanup_free struct argconfig_commandline_options *nvmf =
+		nvmf_options(&fa);
 	char *argv[MAX_DISC_ARGS] = { "discovery.conf" };
 	char *ptr, *p = line;
 	int argc = 1;
 	bool no_reuse = false;
 	char *persistent_arg = NULL;
 
-	NVMF_ARGS(opts, fa,
-		  OPT_STRING_OPTIONAL("persistent", 'p', "no|auto|force",
-			   &persistent_arg,
-			   "persistent discovery connection mode "
-			   "(default: auto; use =no to disable)"),
-		  OPT_FLAG("no-reuse",     0, &no_reuse,
-			   "always create a new connection, never reuse "
-			   "an existing one"),
-		  OPT_FLAG("force",        0, &no_reuse,
-			   "deprecated, see --no-reuse"));
+	OPT_ARGS(opts) = {
+		OPT_INCLUDE(nvmf, "Fabrics options"),
+		OPT_STRING_OPTIONAL("persistent", 'p', "no|auto|force",
+				    &persistent_arg, nvmf_persistent),
+		OPT_FLAG("no-reuse", 0, &no_reuse,
+			 "always create a new connection, never reuse an existing one",
+			 .old_name = "force"),
+		OPT_END()
+	};
 
 	if (line[0] == '#' || line[0] == '\n' || line[0] == '\0')
 		return 0;
 
-	fa.tos = -1;
-	fa.ctrl_loss_tmo = NVMF_DEF_CTRL_LOSS_TMO;
+	if (!nvmf)
+		return -ENOMEM;
 
 	/*
 	 * Split on whitespace only, not '=' -- a glued "--opt=value" token
@@ -606,7 +686,8 @@ int nvmf_convert_discovery_line(struct libnvmf_config_emitter *emitter,
 	 * getopt_long() parses '=' within a single token natively for
 	 * every option shape, so splitting it out here is never required.
 	 */
-	while ((ptr = strsep(&p, "\n ")) != NULL && argc < MAX_DISC_ARGS - 1)
+	while ((ptr = shr_strsep(&p, "\n ")) != NULL &&
+	       argc < MAX_DISC_ARGS - 1)
 		argv[argc++] = ptr;
 	argv[argc] = NULL;
 
@@ -618,7 +699,9 @@ int nvmf_convert_discovery_line(struct libnvmf_config_emitter *emitter,
 		return 0;
 
 	return nvme_config_convert_discovery_args(emitter, &fa,
-		nvmf_resolve_persistent_arg(opts, persistent_arg));
+		nvmf_resolve_persistent_arg(
+			argconfig_given(opts, &persistent_arg),
+			persistent_arg));
 }
 
 static int setup_common_context(struct libnvmf_context *fctx,
@@ -815,9 +898,10 @@ static int fabrics_discovery_config(struct libnvme_global_ctx *ctx,
 /*
  * A controller's ownership extends to everything done through it, so the
  * caller's operation may not proceed unless the invoking owner matches
- * (mirrors disconnect_all_match()'s registry check). No ownerless
- * exemption -- a mismatched or missing --owner is skipped the same way;
- * the escape hatch is passing the owner's own identity.
+ * (mirrors disconnect_all_match()'s registry check). A controller with
+ * no owner proceeds for any caller. A controller with an owner is
+ * skipped unless --owner names that owner; a missing --owner does not
+ * match.
  *
  * --no-reuse skips the check entirely: it means the caller will never
  * reuse an existing controller, so there is nothing to check ownership
@@ -861,7 +945,9 @@ int fabrics_discover(const char *desc, int argc, char **argv, bool connect)
 	__cleanup_nvmf_context struct libnvmf_context *fctx = NULL;
 	__cleanup_free char *resolved_traddr = NULL;
 	int ret;
-	struct nvmf_args fa = { .subsysnqn = NVME_DISC_SUBSYS_NAME };
+	struct nvmf_args fa = nvmf_args_defaults();
+	__cleanup_free struct argconfig_commandline_options *nvmf =
+		nvmf_options(&fa);
 	char *device = NULL;
 	bool no_reuse = false;
 	char *persistent_arg = NULL;
@@ -870,25 +956,29 @@ int fabrics_discover(const char *desc, int argc, char **argv, bool connect)
 	char *nbft_path = NBFT_SYSFS_PATH;
 	char *owner = NULL;
 
-	NVMF_ARGS(opts, fa,
-		  OPT_STRING("device",     'd', "DEV", &device,       "use existing discovery controller device"),
-		  OPT_FILE("raw",          'r', &raw,                 "save raw output to file"),
-		  OPT_STRING_OPTIONAL("persistent", 'p', "no|auto|force",
-			   &persistent_arg,
-			   "persistent discovery connection mode "
-			   "(default: auto; use =no to disable)"),
-		  OPT_STRING("config",     'J', "FILE", &config_file, nvmf_config_file),
-		  OPT_FLAG("no-reuse",       0, &no_reuse,
-			   "always create a new connection, never reuse "
-			   "an existing one"),
-		  OPT_FLAG("force",          0, &no_reuse,
-			   "deprecated, see --no-reuse"),
-		  OPT_FLAG("nbft",           0, &nbft,                "Only look at NBFT tables"),
-		  OPT_FLAG("no-nbft",        0, &nonbft,              "Do not look at NBFT tables"),
-		  OPT_STRING("owner",        0, "NAME", &owner,       "record this owner in the registry"),
-		  OPT_STRING("nbft-path",    0, "STR", &nbft_path,    "user-defined path for NBFT tables"));
+	OPT_ARGS(opts) = {
+		OPT_INCLUDE(nvmf, "Fabrics options"),
+		OPT_STRING("device", 'd', "DEV", &device,
+			   "use existing discovery controller device"),
+		OPT_FILE("raw",     'r', &raw,    "save raw output to file"),
+		OPT_STRING_OPTIONAL("persistent", 'p', "no|auto|force",
+				    &persistent_arg, nvmf_persistent),
+		OPT_FILE("config", 'J', &config_file, nvmf_config_file),
+		OPT_FLAG("no-reuse", 0, &no_reuse,
+			 "always create a new connection, never reuse an existing one",
+			 .old_name = "force"),
+		OPT_FLAG("nbft",    0,   &nbft,   "Only look at NBFT tables"),
+		OPT_FLAG("no-nbft", 0,   &nonbft, "Do not look at NBFT tables"),
+		OPT_STRING("owner", 0, "NAME", &owner,
+			   "record this owner in the registry"),
+		OPT_DIR("nbft-path", 0, &nbft_path,
+			"user-defined path for NBFT tables"),
+		OPT_END()
+	};
 
-	nvmf_default_args(&fa);
+	fa.subsysnqn = NVME_DISC_SUBSYS_NAME;
+	if (!nvmf)
+		return -ENOMEM;
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -896,13 +986,10 @@ int fabrics_discover(const char *desc, int argc, char **argv, bool connect)
 
 	load_nvme_fabrics_module();
 
-	ret = validate_output_format(nvme_args.output_format, &flags);
-	if (ret < 0) {
-		nvme_show_error("Invalid output format");
-		return ret;
-	}
+	flags = nvme_args.output_flags;
 
-	persistent = nvmf_resolve_persistent_arg(opts, persistent_arg);
+	persistent = nvmf_resolve_persistent_arg(
+			argconfig_given(opts, &persistent_arg), persistent_arg);
 
 	if (!strcmp(config_file, "none"))
 		config_file = NULL;
@@ -994,6 +1081,11 @@ int fabrics_discover(const char *desc, int argc, char **argv, bool connect)
 			return 0;
 
 		ret = libnvmf_discover(ctx, fctx);
+		if (ret == -ENVME_CONNECT_DRY_RUN) {
+			nvme_show_error(
+				"dry-run: the discovery needs a connection to the discovery controller, nothing discovered");
+			ret = 0;
+		}
 	}
 
 	return ret;
@@ -1070,19 +1162,26 @@ int fabrics_connect(const char *desc, int argc, char **argv)
 	__cleanup_free char *resolved_traddr = NULL;
 	int ret;
 	nvme_print_flags_t flags;
-	struct nvmf_args fa = { 0 };
+	struct nvmf_args fa = nvmf_args_defaults();
+	__cleanup_free struct argconfig_commandline_options *nvmf =
+		nvmf_options(&fa);
 
-	NVMF_ARGS(opts, fa,
-		  OPT_STRING("config",             'J', "FILE", &config_file, nvmf_config_file),
-		  OPT_STRING("owner",                0, "NAME", &owner,           "record this owner in the registry"),
-		  OPT_STRING("devid-file", 0, "FILE", &devid_file,
-			     "write connected device name to FILE"),
-		  OPT_FLAG("idempotent", 0, &idempotent,
-			   "exit 0 if already connected"),
-		  OPT_FLAG("discovery", 0, &discovery,
-			   "the target is a discovery controller"));
+	OPT_ARGS(opts) = {
+		OPT_INCLUDE(nvmf, "Fabrics options"),
+		OPT_FILE("config", 'J', &config_file, nvmf_config_file),
+		OPT_STRING("owner", 0, "NAME", &owner,
+			   "record this owner in the registry"),
+		OPT_FILE("devid-file", 0, &devid_file,
+			 "write connected device name to FILE"),
+		OPT_FLAG("idempotent", 0, &idempotent,
+			 "exit 0 if already connected"),
+		OPT_FLAG("discovery", 0, &discovery,
+			 "the target is a discovery controller"),
+		OPT_END()
+	};
 
-	nvmf_default_args(&fa);
+	if (!nvmf)
+		return -ENOMEM;
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -1090,11 +1189,7 @@ int fabrics_connect(const char *desc, int argc, char **argv)
 
 	load_nvme_fabrics_module();
 
-	ret = validate_output_format(nvme_args.output_format, &flags);
-	if (ret < 0) {
-		nvme_show_error("Invalid output format");
-		return ret;
-	}
+	flags = nvme_args.output_flags;
 
 	if (config_file && !strcmp(config_file, "none"))
 		config_file = NULL;
@@ -1196,6 +1291,8 @@ do_connect:
 	ret = libnvmf_connect(ctx, fctx);
 	if (ret == -ENVME_CONNECT_ALREADY && idempotent)
 		ret = 0;
+	if (ret == -ENVME_CONNECT_DRY_RUN)
+		ret = 0;
 	if (ret) {
 		/*
 		 * hook_already_connected() already reported the specific
@@ -1255,7 +1352,7 @@ static int nvmf_disconnect_nqn(struct libnvme_global_ctx *ctx, char *nqn)
 	struct libnvme_subsystem *s;
 	struct libnvme_ctrl *c;
 
-	while ((p = strsep(&n, ",")) != NULL) {
+	while ((p = shr_strsep(&n, ",")) != NULL) {
 		if (!strlen(p))
 			continue;
 		libnvme_for_each_host(ctx, h) {
@@ -1345,7 +1442,7 @@ static int disconnect_by_device(struct libnvme_global_ctx *ctx,
 	char *p;
 	int err;
 
-	while ((p = strsep(&device, ",")) != NULL) {
+	while ((p = shr_strsep(&device, ",")) != NULL) {
 		if (!strncmp(p, "/dev/", 5))
 			p += 5;
 
@@ -1420,7 +1517,7 @@ static int disconnect_by_nqn(struct libnvme_global_ctx *ctx, const char *nqn,
 			return -ENOMEM;
 
 		t = excl;
-		while ((p = strsep(&t, ",")) != NULL) {
+		while ((p = shr_strsep(&t, ",")) != NULL) {
 			if (!*p)
 				continue;
 
@@ -1438,7 +1535,9 @@ int fabrics_disconnect(const char *desc, int argc, char **argv)
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_free char *resolved_traddr = NULL;
-	struct nvmf_args fa = { 0 };
+	struct nvmf_args fa = nvmf_args_defaults();
+	__cleanup_free struct argconfig_commandline_options *nvmf =
+		nvmf_options(&fa);
 	bool match_args;
 	int err;
 
@@ -1449,11 +1548,15 @@ int fabrics_disconnect(const char *desc, int argc, char **argv)
 
 	struct config cfg = { 0 };
 
-	NVMF_ARGS(opts, fa,
-		OPT_STRING("device",     'd', "DEV",  &cfg.device,  device),
-		OPT_FLAG("exclude", 'x', &cfg.exclude, exclude_help));
+	OPT_ARGS(opts) = {
+		OPT_INCLUDE(nvmf, "Fabrics options"),
+		OPT_STRING("device", 'd', "DEV",        &cfg.device, device),
+		OPT_FLAG("exclude",  'x', &cfg.exclude, exclude_help),
+		OPT_END()
+	};
 
-	nvmf_default_args(&fa);
+	if (!nvmf)
+		return -ENOMEM;
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -1544,10 +1647,13 @@ int fabrics_disconnect_all(const char *desc, int argc, char **argv)
 
 	struct config cfg = { 0 };
 
-	NVME_ARGS(opts,
-		OPT_STRING("transport", 't', "STR", &cfg.transport, DESC_NVMF_TPORT),
-		OPT_STRING("owner", 0, "NAME", &cfg.owner, owner_help),
-		OPT_FLAG("force", 0, &cfg.force, force_help));
+	OPT_ARGS(opts) = {
+		OPT_STRING("transport", 't', "STR", &cfg.transport,
+			   DESC_NVMF_TPORT),
+		OPT_STRING("owner", 0, "NAME",     &cfg.owner, owner_help),
+		OPT_FLAG("force",   0, &cfg.force, force_help),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -1625,7 +1731,7 @@ int fabrics_config_validate(const char *desc, int argc, char **argv)
 	int ret;
 
 	OPT_ARGS(opts) = {
-		OPT_STRING("config", 'J', "FILE", &config_file, nvmf_config_file_ro),
+		OPT_FILE("config", 'J', &config_file, nvmf_config_file_ro),
 		OPT_END()
 	};
 
@@ -1659,19 +1765,16 @@ int fabrics_config_show(const char *desc, int argc, char **argv)
 	nvme_print_flags_t flags;
 	int ret;
 
-	NVME_ARGS(opts,
-		OPT_STRING("config", 'J', "FILE", &config_file,
-			   nvmf_config_file_ro));
+	OPT_ARGS(opts) = {
+		OPT_FILE("config", 'J', &config_file, nvmf_config_file_ro),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
 		return ret;
 
-	ret = validate_output_format(nvme_args.output_format, &flags);
-	if (ret < 0) {
-		nvme_show_error("Invalid output format");
-		return ret;
-	}
+	flags = nvme_args.output_flags;
 
 	ret = nvme_create_global_ctx(&ctx);
 	if (ret)
@@ -1721,7 +1824,7 @@ int fabrics_dim(const char *desc, int argc, char **argv)
 	enum nvmf_dim_tas tas;
 	struct libnvme_ctrl *c;
 	char *p;
-	int ret;
+	int ret, err = 0;
 
 	struct {
 		char *nqn;
@@ -1729,10 +1832,15 @@ int fabrics_dim(const char *desc, int argc, char **argv)
 		char *tas;
 	} cfg = { 0 };
 
-	NVME_ARGS(opts,
-		OPT_STRING("nqn",    'n', "NAME", &cfg.nqn,    "Comma-separated list of DC nqn"),
-		OPT_STRING("device", 'd', "DEV",  &cfg.device, "Comma-separated list of DC nvme device handle."),
-		OPT_STRING("task",   't', "TASK", &cfg.tas,    "[register|deregister]"));
+	OPT_ARGS(opts) = {
+		OPT_STRING("nqn", 'n', "NAME", &cfg.nqn,
+			   "Comma-separated list of DC nqn"),
+		OPT_STRING("device", 'd', "DEV", &cfg.device,
+			   "Comma-separated list of DC nvme device handle."),
+		OPT_STRING("task", 't', "TASK", &cfg.tas,
+			   "[register|deregister]"),
+		OPT_END()
+	};
 
 	ret = parse_args(argc, argv, desc, opts);
 	if (ret)
@@ -1777,15 +1885,18 @@ int fabrics_dim(const char *desc, int argc, char **argv)
 		struct libnvme_subsystem *s;
 		char *n = cfg.nqn;
 
-		while ((p = strsep(&n, ",")) != NULL) {
+		while ((p = shr_strsep(&n, ",")) != NULL) {
 			if (!strlen(p))
 				continue;
 			libnvme_for_each_host(ctx, h) {
 				libnvme_for_each_subsystem(h, s) {
 					if (strcmp(libnvme_subsystem_get_subsysnqn(s), p))
 						continue;
-					libnvme_subsystem_for_each_ctrl(s, c)
+					libnvme_subsystem_for_each_ctrl(s, c) {
 						ret = dim_operation(c, tas, p);
+						if (ret && !err)
+							err = ret;
+					}
 				}
 			}
 		}
@@ -1794,7 +1905,7 @@ int fabrics_dim(const char *desc, int argc, char **argv)
 	if (cfg.device) {
 		char *d = cfg.device;
 
-		while ((p = strsep(&d, ",")) != NULL) {
+		while ((p = shr_strsep(&d, ",")) != NULL) {
 			if (!strncmp(p, "/dev/", 5))
 				p += 5;
 			ret = libnvme_scan_ctrl(ctx, p, &c);
@@ -1805,8 +1916,10 @@ int fabrics_dim(const char *desc, int argc, char **argv)
 				return ret;
 			}
 			ret = dim_operation(c, tas, p);
+			if (ret && !err)
+				err = ret;
 		}
 	}
 
-	return ret;
+	return err;
 }

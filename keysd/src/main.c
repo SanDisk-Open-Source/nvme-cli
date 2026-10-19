@@ -12,19 +12,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/prctl.h>
+
+#include <systemd/sd-daemon.h>
+#include <systemd/sd-event.h>
 
 #include <daemon-util/log.h>
 #include <nvme/lib.h>
 
 #include "config.h"
 #include "import.h"
+#include "kmip-client.h"
+#include "kmip-varlink.h"
+
+// Retry delays for a key that a KMS did not deliver.
+#define KMIP_RETRY_USEC		(5 * 1000000ULL)
+#define KMIP_RETRY_MAX_USEC	(5 * 60 * 1000000ULL)
 
 struct keysd_ctx {
 	struct libnvme_global_ctx *nvme_ctx; // libnvme logging
 	const char *conf_path;               // nvme-keysd's conf path
 	const char *fabrics_conf;            // NULL: libnvme's default
 	const char *creds_dir;               // encrypted credentials
+	const char *kmip_address;            // Varlink socket of the helper
 	struct keysd_config *cfg;            // parsed @conf_path
 	bool force_debug;                    // --debug forces DEBUG
 	bool should_start;                   // --should-start: test, exit
@@ -50,6 +61,52 @@ static bool should_start(void)
 	return false;
 }
 
+static int import_kmip(const struct kmip_job *job, const char *encoded,
+		       void *arg)
+{
+	return import_kmip_psk(arg, job, encoded);
+}
+
+/*
+ * Get the keys from the KMSes. Runs until SIGTERM: a key that cannot be
+ * imported is asked for again later.
+ */
+static int run_kmip(struct import_ctx *ic, const struct kmip_job *jobs,
+		    size_t nr_jobs)
+{
+	const struct kmip_client_cfg cfg = {
+		.address = ctx.kmip_address,
+		.retry_usec = KMIP_RETRY_USEC,
+		.retry_max_usec = KMIP_RETRY_MAX_USEC,
+		.import = import_kmip,
+		.arg = ic,
+	};
+	struct kmip_client *client = NULL;
+	sd_event *event = NULL;
+	int r;
+
+	r = sd_event_default(&event);
+	if (r >= 0)
+		r = sd_event_add_signal(event, NULL,
+					SIGTERM | SD_EVENT_SIGNAL_PROCMASK,
+					NULL, NULL);
+	if (r >= 0)
+		r = sd_event_add_signal(event, NULL,
+					SIGINT | SD_EVENT_SIGNAL_PROCMASK,
+					NULL, NULL);
+	if (r >= 0)
+		r = kmip_client_new(event, &cfg, jobs, nr_jobs, &client);
+	if (r >= 0)
+		r = sd_event_loop(event);
+	if (r < 0)
+		log_err("KMIP: %s", strerror(-r));
+
+	kmip_client_free(client);
+	sd_event_unref(event);
+
+	return r;
+}
+
 static void usage(const char *prog)
 {
 	printf("Usage: %s [OPTIONS]\n"
@@ -60,6 +117,8 @@ static void usage(const char *prog)
 	       "                          (default: libnvme's default)\n"
 	       "  --creds-dir DIR         encrypted credentials\n"
 	       "                          (default: " KEYSD_CREDS_DIR ")\n"
+	       "  --kmip-test-addr PATH   Varlink socket of nvme-keysd-kmip\n"
+	       "                          (default: " KMIP_VARLINK_ADDRESS ")\n"
 	       "  --should-start          exit 0 if there is work to do,\n"
 	       "                          1 otherwise\n"
 	       "  --debug, -d             enable debug logging (journal + libnvme)\n"
@@ -73,6 +132,7 @@ int main(int argc, char **argv)
 		{ "config",         required_argument, NULL, 'c' },
 		{ "fabrics-config", required_argument, NULL, 'J' },
 		{ "creds-dir",      required_argument, NULL, 'C' },
+		{ "kmip-test-addr", required_argument, NULL, 'K' },
 		{ "should-start",   no_argument,       NULL, 'S' },
 		{ "debug",          no_argument,       NULL, 'd' },
 		{ "help",           no_argument,       NULL, 'h' },
@@ -81,7 +141,10 @@ int main(int argc, char **argv)
 	char *config_path_abs = NULL;
 	char *fabrics_path_abs = NULL;
 	char *creds_path_abs = NULL;
-	int r, c;
+	const struct kmip_job *jobs;
+	struct import_ctx *ic;
+	size_t nr_jobs;
+	int r = 0, c;
 
 	while ((c = getopt_long(argc, argv, "c:dh", long_opts,
 				NULL)) != -1) {
@@ -109,6 +172,9 @@ int main(int argc, char **argv)
 		case 'd':
 			ctx.force_debug = true;
 			break;
+		case 'K':
+			ctx.kmip_address = optarg;
+			break;
 		case 'S':
 			ctx.should_start = true;
 			break;
@@ -133,6 +199,8 @@ int main(int argc, char **argv)
 	ctx.conf_path = config_path_abs ? config_path_abs : KEYSD_CONF_PATH;
 	ctx.fabrics_conf = fabrics_path_abs;
 	ctx.creds_dir = creds_path_abs ? creds_path_abs : KEYSD_CREDS_DIR;
+	if (!ctx.kmip_address)
+		ctx.kmip_address = KMIP_VARLINK_ADDRESS;
 
 	// Key material must never end up in a core dump.
 	if (prctl(PR_SET_DUMPABLE, 0) < 0) {
@@ -169,14 +237,28 @@ int main(int argc, char **argv)
 		return r;
 	}
 
-	import_keys(ctx.nvme_ctx, ctx.fabrics_conf, ctx.creds_dir);
-	log_info("keys imported, exiting");
+	ic = import_new(ctx.nvme_ctx, ctx.creds_dir, ctx.cfg);
+	if (!ic) {
+		log_err("import_new: failed");
+		return 1;
+	}
+	import_keys(ic, ctx.fabrics_conf);
+	nr_jobs = import_kmip_jobs(ic, &jobs);
+	if (!nr_jobs)
+		log_info("keys imported, exiting");
 
+	// The units ordered after nvme-keysd need the local keys only.
+	sd_notify(0, "READY=1");
+
+	if (nr_jobs)
+		r = run_kmip(ic, jobs, nr_jobs) < 0 ? 1 : 0;
+
+	import_free(ic);
 	config_free(ctx.cfg);
 	libnvme_free_global_ctx(ctx.nvme_ctx);
 	free(config_path_abs);
 	free(fabrics_path_abs);
 	free(creds_path_abs);
 
-	return 0;
+	return r;
 }

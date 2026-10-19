@@ -21,6 +21,36 @@ if python3.found()
             ],
             depends: nvme_exe,
             timeout: 120,
+            suite: 'check',
+        )
+
+        # The global options are one table; the documentation has to list
+        # each of them, also as a key of nvme-cli.conf.
+        test(
+            'nvme-cli - global-options-doc',
+            python3,
+            args: [
+                files('test_global_options_doc.py'),
+                nvme_exe,
+                meson.project_source_root() / 'Documentation',
+            ],
+            depends: nvme_exe,
+            timeout: 60,
+            suite: 'check',
+        )
+
+        # The global options are looked up first, -h is the help; a
+        # command option must use neither, nor a name twice.
+        test(
+            'nvme-cli - option-names',
+            python3,
+            args: [
+                files('test_option_names.py'),
+                nvme_exe,
+            ],
+            depends: nvme_exe,
+            timeout: 60,
+            suite: 'check',
         )
     endif
 
@@ -34,6 +64,7 @@ if python3.found()
             meson.project_source_root() / 'completions' / 'generate-completions.py',
         ],
         timeout: 60,
+        suite: 'check',
     )
 
     # The generated completion scripts must not depend on the order commands,
@@ -48,6 +79,7 @@ if python3.found()
             meson.project_source_root() / 'completions' / 'test-command-metadata.json',
         ],
         timeout: 60,
+        suite: 'check',
     )
 
     # Commands, plugins, sub-commands, and options must be listed
@@ -62,6 +94,20 @@ if python3.found()
             meson.project_source_root() / 'completions' / 'test-command-metadata.json',
         ],
         timeout: 60,
+        suite: 'check',
+    )
+
+    # The options complete what their type and range in the metadata say.
+    test(
+        'nvme-cli - generate-completions-values',
+        python3,
+        args: [
+            files('test_generate_completions_values.py'),
+            meson.project_source_root() / 'completions' / 'generate-completions.py',
+            meson.project_source_root() / 'completions' / 'test-command-metadata.json',
+        ],
+        timeout: 60,
+        suite: 'check',
     )
 
     # The completion test fixture is a hand-written, synthetic metadata model;
@@ -76,16 +122,18 @@ if python3.found()
             meson.project_source_root() / 'plugins' / 'utils' / 'command-metadata-schema.json',
         ],
         timeout: 60,
+        suite: 'check',
     )
 
     # Test e2e runner's TAP/JSON generation.
     test(
-        'nvme-cli - e2e-runner-tap',
+        'nvme-cli-e2e - tap',
         python3,
         args: [
             files('test_e2e_runner_tap.py'),
             meson.project_source_root() / 'tests' / 'e2e' / 'runner.py',
         ],
         timeout: 60,
+        suite: 'unit',
     )
 endif

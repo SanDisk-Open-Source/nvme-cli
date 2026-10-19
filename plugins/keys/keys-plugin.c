@@ -75,10 +75,12 @@ static int gen_kxchap(int argc, char **argv, struct command *acmd, struct plugin
 		.hmac		= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_STR("secret",		's', &cfg.secret,	secret),
-		  OPT_UINT("secret-length",	'l', &cfg.secret_len,	secret_len),
-		  OPT_UINT("hmac",		'm', &cfg.hmac,		hmac));
+	OPT_ARGS(opts) = {
+		OPT_STR("secret",         's', &cfg.secret,     secret),
+		OPT_UINT("secret-length", 'l', &cfg.secret_len, secret_len),
+		OPT_UINT("hmac",          'm', &cfg.hmac,       hmac),
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -251,11 +253,13 @@ static int check_kxchap(int argc, char **argv, struct command *acmd, struct plug
 		.identity	= NULL,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_STR("keydata",	'd', &cfg.keydata,	keydata),
-		  OPT_STR("keyring",	'k', &cfg.keyring,	keyring),
-		  OPT_STR("keytype",	't', &cfg.keytype,	keytype),
-		  OPT_STR("identity",	'i', &cfg.identity,	identity));
+	OPT_ARGS(opts) = {
+		OPT_STR("keydata",  'd', &cfg.keydata,  keydata),
+		OPT_STR("keyring",  'k', &cfg.keyring,  keyring),
+		OPT_STR("keytype",  't', &cfg.keytype,  keytype),
+		OPT_STR("identity", 'i', &cfg.identity, identity),
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -480,17 +484,19 @@ static int gen_tls(int argc, char **argv, struct command *acmd, struct plugin *p
 		.compat		= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_STR("keyring",	'k', &cfg.keyring,	keyring),
-		  OPT_STR("keytype",	't', &cfg.keytype,	keytype),
-		  OPT_STR("hostnqn",	'n', &cfg.hostnqn,	hostnqn),
-		  OPT_STR("subsysnqn",	'c', &cfg.subsysnqn,	subsysnqn),
-		  OPT_STR("secret",	's', &cfg.secret,	secret),
-		  OPT_STR("keyfile",	'f', &cfg.keyfile,	keyfile),
-		  OPT_BYTE("hmac",	'm', &cfg.hmac,		hmac),
-		  OPT_BYTE("identity",	'I', &cfg.version,	version),
-		  OPT_FLAG("insert",	'i', &cfg.insert,	insert),
-		  OPT_FLAG("compat",	'C', &cfg.compat,	compat));
+	OPT_ARGS(opts) = {
+		OPT_STR("keyring",   'k', &cfg.keyring,   keyring),
+		OPT_STR("keytype",   't', &cfg.keytype,   keytype),
+		OPT_STR("hostnqn",   'n', &cfg.hostnqn,   hostnqn),
+		OPT_STR("subsysnqn", 'c', &cfg.subsysnqn, subsysnqn),
+		OPT_STR("secret",    's', &cfg.secret,    secret),
+		OPT_FILE("keyfile",  'f', &cfg.keyfile,   keyfile),
+		OPT_BYTE("hmac",     'm', &cfg.hmac,      hmac),
+		OPT_BYTE("identity", 'I', &cfg.version,   version),
+		OPT_FLAG("insert",   'i', &cfg.insert,    insert),
+		OPT_FLAG("compat",   'C', &cfg.compat,    compat),
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -589,14 +595,16 @@ static int check_tls(int argc, char **argv, struct command *acmd, struct plugin 
 		.compat		= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_STR("keyring",	'k', &cfg.keyring,	keyring),
-		  OPT_STR("keytype",	't', &cfg.keytype,	keytype),
-		  OPT_STR("hostnqn",	'n', &cfg.hostnqn,	hostnqn),
-		  OPT_STR("subsysnqn",	'c', &cfg.subsysnqn,	subsysnqn),
-		  OPT_STR("keydata",	'd', &cfg.keydata,	keydata),
-		  OPT_BYTE("identity",	'I', &cfg.identity,	identity),
-		  OPT_FLAG("compat",	'C', &cfg.compat,	compat));
+	OPT_ARGS(opts) = {
+		OPT_STR("keyring",   'k', &cfg.keyring,   keyring),
+		OPT_STR("keytype",   't', &cfg.keytype,   keytype),
+		OPT_STR("hostnqn",   'n', &cfg.hostnqn,   hostnqn),
+		OPT_STR("subsysnqn", 'c', &cfg.subsysnqn, subsysnqn),
+		OPT_STR("keydata",   'd', &cfg.keydata,   keydata),
+		OPT_BYTE("identity", 'I', &cfg.identity,  identity),
+		OPT_FLAG("compat",   'C', &cfg.compat,    compat),
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -721,15 +729,17 @@ static int insert_tls(int argc, char **argv, struct command *acmd, struct plugin
 		.compat		= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_STR("keyring",	'k', &cfg.keyring,	keyring),
-		  OPT_STR("keytype",	't', &cfg.keytype,	keytype),
-		  OPT_STR("hostnqn",	'n', &cfg.hostnqn,	hostnqn),
-		  OPT_STR("subsysnqn",	'c', &cfg.subsysnqn,	subsysnqn),
-		  OPT_STR("keydata",	'd', &cfg.keydata,	keydata),
-		  OPT_STR("keyfile",	'f', &cfg.keyfile,	keyfile),
-		  OPT_BYTE("identity",	'I', &cfg.identity,	identity),
-		  OPT_FLAG("compat",	'C', &cfg.compat,	compat));
+	OPT_ARGS(opts) = {
+		OPT_STR("keyring",   'k', &cfg.keyring,   keyring),
+		OPT_STR("keytype",   't', &cfg.keytype,   keytype),
+		OPT_STR("hostnqn",   'n', &cfg.hostnqn,   hostnqn),
+		OPT_STR("subsysnqn", 'c', &cfg.subsysnqn, subsysnqn),
+		OPT_STR("keydata",   'd', &cfg.keydata,   keydata),
+		OPT_FILE("keyfile",  'f', &cfg.keyfile,   keyfile),
+		OPT_BYTE("identity", 'I', &cfg.identity,  identity),
+		OPT_FLAG("compat",   'C', &cfg.compat,    compat),
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -823,9 +833,11 @@ static int key_export(int argc, char **argv, struct command *acmd, struct plugin
 		.keyfile = NULL,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_STR("keyring", 'k', &cfg.keyring, keyring),
-		  OPT_STR("keyfile", 'f', &cfg.keyfile, keyfile));
+	OPT_ARGS(opts) = {
+		OPT_STR("keyring", 'k', &cfg.keyring, keyring),
+		OPT_FILE("keyfile", 'f', &cfg.keyfile, keyfile),
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -967,11 +979,13 @@ static int key_import(int argc, char **argv, struct command *acmd, struct plugin
 		.identity	= NULL,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_STR("keyring",	'k', &cfg.keyring,	keyring),
-		  OPT_STR("keyfile",	'f', &cfg.keyfile,	keyfile),
-		  OPT_STR("keydata",	'd', &cfg.keydata,	keydata),
-		  OPT_STR("identity",	'i', &cfg.identity,	identity));
+	OPT_ARGS(opts) = {
+		OPT_STR("keyring",  'k', &cfg.keyring,  keyring),
+		OPT_FILE("keyfile", 'f', &cfg.keyfile,  keyfile),
+		OPT_STR("keydata",  'd', &cfg.keydata,  keydata),
+		OPT_STR("identity", 'i', &cfg.identity, identity),
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -1060,10 +1074,12 @@ static int key_revoke(int argc, char **argv, struct command *acmd, struct plugin
 		.identity = NULL,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_STR("keyring", 'k', &cfg.keyring, keyring),
-		  OPT_STR("keytype", 't', &cfg.keytype, keytype),
-		  OPT_STR("identity", 'i', &cfg.identity, identity));
+	OPT_ARGS(opts) = {
+		OPT_STR("keyring",  'k', &cfg.keyring,  keyring),
+		OPT_STR("keytype",  't', &cfg.keytype,  keytype),
+		OPT_STR("identity", 'i', &cfg.identity, identity),
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -1097,56 +1113,56 @@ static struct command gen_kxchap_cmd = {
 	.name = "gen-kxchap-secret",
 	.help = "Generate NVMeoF KX-HMAC-CHAP host secret",
 	.fn = gen_kxchap,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command check_kxchap_cmd = {
 	.name = "check-kxchap-secret",
 	.help = "Validate NVMeoF KX-HMAC-CHAP host secret format or check if loaded",
 	.fn = check_kxchap,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command gen_tls_cmd = {
 	.name = "gen-tls-psk",
 	.help = "Generate NVMeoF TLS PSK",
 	.fn = gen_tls,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command check_tls_cmd = {
 	.name = "check-tls-psk",
 	.help = "Validate NVMeoF TLS PSK format or check if loaded",
 	.fn = check_tls,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command insert_tls_cmd = {
 	.name = "insert-tls-psk",
 	.help = "Insert NVMeoF TLS PSK into a keyring",
 	.fn = insert_tls,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command key_import_cmd = {
 	.name = "import",
 	.help = "Import NVMeoF TLS PSKs and KX-HMAC-CHAP secrets into a keyring",
 	.fn = key_import,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command key_export_cmd = {
 	.name = "export",
 	.help = "Export NVMeoF TLS PSKs from a keyring",
 	.fn = key_export,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command key_revoke_cmd = {
 	.name = "revoke",
 	.help = "Revoke an NVMeoF TLS PSK from a keyring",
 	.fn = key_revoke,
-	.no_device = true,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command *commands[] = {

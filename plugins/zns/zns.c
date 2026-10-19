@@ -104,7 +104,9 @@ static int list(int argc, char **argv, struct command *acmd,
 	};
 	struct shr_table *t;
 
-	NVME_ARGS_OUTPUT_FORMATS(opts, NORMAL, "Output format: normal");
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_args(argc, argv, desc, opts);
 	if (err)
@@ -148,15 +150,15 @@ static int id_ctrl(int argc, char **argv, struct command *acmd, struct plugin *p
 	nvme_print_flags_t flags;
 	int err = -1;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0)
 		return err;
+
+	flags = nvme_args.output_flags;
 
 	nvme_init_zns_identify_ctrl(&cmd, &ctrl);
 	err = libnvme_exec_admin_passthru(hdl, &cmd);
@@ -174,7 +176,6 @@ static int id_ns(int argc, char **argv, struct command *acmd, struct plugin *plu
 			   "the given device and report information about the specified\n"
 			   "namespace in varios formats.";
 	const char *vendor_specific = "dump binary vendor fields";
-	const char *human_readable = "show identify in readable format";
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
@@ -186,27 +187,27 @@ static int id_ns(int argc, char **argv, struct command *acmd, struct plugin *plu
 
 	struct config {
 		__u32 namespace_id;
-		bool human_readable;
 		bool vendor_specific;
 	};
 
 	struct config cfg = { };
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
-		OPT_FLAG("vendor-specific", 'V', &cfg.vendor_specific, vendor_specific),
-		OPT_FLAG("human-readable", 'H', &cfg.human_readable, human_readable));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_FLAG("vendor-specific", 'V', &cfg.vendor_specific,
+			 vendor_specific),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0)
 		return err;
+
+	flags = nvme_args.output_flags;
 	if (cfg.vendor_specific)
 		flags |= VS;
-	if (cfg.human_readable)
+	if (nvme_args.verbose)
 		flags |= VERBOSE;
 
 	if (!cfg.namespace_id) {
@@ -253,10 +254,13 @@ static int zns_mgmt_send(int argc, char **argv, struct command *acmd, struct plu
 
 	struct config cfg = {};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
-		OPT_SUFFIX("start-lba",  's', &cfg.zslba,         zslba),
-		OPT_FLAG("select-all",   'a', &cfg.select_all,    select_all));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_SUFFIX("start-lba",  's', &cfg.zslba,        zslba),
+		OPT_FLAG("select-all",   'a', &cfg.select_all,   select_all),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
@@ -341,24 +345,27 @@ static int zone_mgmt_send(int argc, char **argv, struct command *acmd, struct pl
 		bool	zsaso;
 		bool	select_all;
 		__u8	zsa;
-		int	data_len;
+		__u32	data_len;
 		char	*file;
 	};
 
 	struct config cfg = {};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
-		OPT_SUFFIX("start-lba",  's', &cfg.zslba,         zslba),
-		OPT_FLAG("zsaso",        'O', &cfg.zsaso,         zsaso),
-		OPT_FLAG("select-all",   'a', &cfg.select_all,    select_all),
-		OPT_BYTE("zsa",          'z', &cfg.zsa,           zsa),
-		OPT_UINT("data-len",     'l', &cfg.data_len,      data_len),
-		OPT_FILE("data",         'd', &cfg.file,          data));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_SUFFIX("start-lba",  's', &cfg.zslba,        zslba),
+		OPT_FLAG("zsaso",        'O', &cfg.zsaso,        zsaso),
+		OPT_FLAG("select-all",   'a', &cfg.select_all,   select_all),
+		OPT_BYTE("zsa",          'z', &cfg.zsa,          zsa),
+		OPT_UINT("data-len",     'l', &cfg.data_len,     data_len),
+		OPT_FILE("data",         'd', &cfg.file,         data),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
+		return err;
 
 	if (!cfg.namespace_id) {
 		err = libnvme_get_nsid(hdl, &cfg.namespace_id);
@@ -463,15 +470,18 @@ static int open_zone(int argc, char **argv, struct command *acmd, struct plugin 
 	struct config cfg = {
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
-		OPT_SUFFIX("start-lba",  's', &cfg.zslba,         zslba),
-		OPT_FLAG("zrwaa",         'r', &cfg.zrwaa,          zrwaa),
-		OPT_FLAG("select-all",   'a', &cfg.select_all,    select_all));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_SUFFIX("start-lba",  's', &cfg.zslba,        zslba),
+		OPT_FLAG("zrwaa",        'r', &cfg.zrwaa,        zrwaa),
+		OPT_FLAG("select-all",   'a', &cfg.select_all,   select_all),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
+		return err;
 
 	if (!cfg.namespace_id) {
 		err = libnvme_get_nsid(hdl, &cfg.namespace_id);
@@ -531,15 +541,18 @@ static int set_zone_desc(int argc, char **argv, struct command *acmd, struct plu
 
 	struct config cfg = {};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
-		OPT_SUFFIX("start-lba",  's', &cfg.zslba,         zslba),
-		OPT_FLAG("zrwaa",        'r', &cfg.zrwaa,         zrwaa),
-		OPT_FILE("data",         'd', &cfg.file,          data));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_SUFFIX("start-lba",  's', &cfg.zslba,        zslba),
+		OPT_FLAG("zrwaa",        'r', &cfg.zrwaa,        zrwaa),
+		OPT_FILE("data",         'd', &cfg.file,         data),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
+		return err;
 
 	if (!cfg.namespace_id) {
 		err = libnvme_get_nsid(hdl, &cfg.namespace_id);
@@ -613,13 +626,16 @@ static int zrwa_flush_zone(int argc, char **argv, struct command *acmd, struct p
 
 	struct config cfg = {};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
-		OPT_SUFFIX("lba",        'l', &cfg.lba,           slba));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_SUFFIX("lba",        'l', &cfg.lba,          slba),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
+		return err;
 
 	if (!cfg.namespace_id) {
 		err = libnvme_get_nsid(hdl, &cfg.namespace_id);
@@ -653,7 +669,6 @@ static int zone_mgmt_recv(int argc, char **argv, struct command *acmd, struct pl
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	struct libnvme_passthru_cmd cmd;
-	nvme_print_flags_t flags;
 	void *data = NULL;
 	int err = -1;
 
@@ -668,20 +683,19 @@ static int zone_mgmt_recv(int argc, char **argv, struct command *acmd, struct pl
 
 	struct config cfg = { };
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id",  'n', &cfg.namespace_id,   namespace_id),
-		OPT_SUFFIX("start-lba",   's', &cfg.zslba,          zslba),
-		OPT_BYTE("zra",           'z', &cfg.zra,            zra),
-		OPT_BYTE("zrasf",         'S', &cfg.zrasf,          zrasf),
-		OPT_FLAG("partial",       'p', &cfg.partial,        partial),
-		OPT_UINT("data-len",      'l', &cfg.data_len,       data_len));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_SUFFIX("start-lba",  's', &cfg.zslba,        zslba),
+		OPT_BYTE("zra",          'z', &cfg.zra,          zra),
+		OPT_BYTE("zrasf",        'S', &cfg.zrasf,        zrasf),
+		OPT_FLAG("partial",      'p', &cfg.partial,      partial),
+		OPT_UINT("data-len",     'l', &cfg.data_len,     data_len),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0)
 		return err;
 
 	if (!cfg.namespace_id) {
@@ -726,7 +740,6 @@ static int report_zones(int argc, char **argv, struct command *acmd, struct plug
 	const char *state = "state of zones to list";
 	const char *ext = "set to use the extended report zones";
 	const char *part = "set to use the partial report";
-	const char *verbose = "show report zones verbosity";
 
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
@@ -752,34 +765,33 @@ static int report_zones(int argc, char **argv, struct command *acmd, struct plug
 	struct config {
 		__u64 zslba;
 		__u32 namespace_id;
-		int   num_descs;
-		int   state;
-		bool  verbose;
+		__u32 num_descs;
+		__u32 state;
 		bool  extended;
 		bool  partial;
 	};
 
 	struct config cfg = {
-		.num_descs = -1,
+		.num_descs = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id",  'n', &cfg.namespace_id,   namespace_id),
-		OPT_SUFFIX("start-lba",   's', &cfg.zslba,          zslba),
-		OPT_UINT("descs",         'd', &cfg.num_descs,      num_descs),
-		OPT_UINT("state",         'S', &cfg.state,          state),
-		OPT_FLAG("verbose",       'V', &cfg.verbose,        verbose),
-		OPT_FLAG("extended",      'e', &cfg.extended,       ext),
-		OPT_FLAG("partial",       'p', &cfg.partial,        part));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_SUFFIX("start-lba",  's', &cfg.zslba,        zslba),
+		OPT_UINT("descs",        'd', &cfg.num_descs,    num_descs),
+		OPT_UINT("state",        'S', &cfg.state,        state),
+		OPT_FLAG("extended",     'e', &cfg.extended,     ext),
+		OPT_FLAG("partial",      'p', &cfg.partial,      part),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0)
 		return err;
-	if (cfg.verbose)
+
+	flags = nvme_args.output_flags;
+	if (nvme_args.verbose)
 		flags |= VERBOSE;
 
 	if (!cfg.namespace_id) {
@@ -830,7 +842,7 @@ static int report_zones(int argc, char **argv, struct command *acmd, struct plug
 
 	total_nr_zones = le64_to_cpu(buff->nr_zones);
 
-	if (cfg.num_descs == -1)
+	if (!argconfig_given(opts, &cfg.num_descs))
 		cfg.num_descs = total_nr_zones;
 
 	nr_zones = cfg.num_descs;
@@ -930,22 +942,27 @@ static int zone_append(int argc, char **argv, struct command *acmd, struct plugi
 
 	struct config cfg = {};
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
-		OPT_SUFFIX("zslba",           's', &cfg.zslba,         zslba),
-		OPT_SUFFIX("data-size",       'z', &cfg.data_size,     data_size),
-		OPT_SUFFIX("metadata-size",   'y', &cfg.metadata_size, metadata_size),
-		OPT_FILE("data",              'd', &cfg.data,          data),
-		OPT_FILE("metadata",          'M', &cfg.metadata,      metadata),
-		OPT_FLAG("limited-retry",     'l', &cfg.limited_retry, limited_retry),
-		OPT_FLAG("force-unit-access", 'f', &cfg.fua,           fua),
-		OPT_BYTE("prinfo",            'p', &cfg.prinfo,        prinfo),
-		OPT_FLAG("piremap",           'P', &cfg.piremap,       piremap),
-		OPT_FLAG("latency",           't', &cfg.latency,       latency));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_SUFFIX("zslba",           's', &cfg.zslba,     zslba),
+		OPT_SUFFIX("data-size",       'z', &cfg.data_size, data_size),
+		OPT_SUFFIX("metadata-size", 'y', &cfg.metadata_size,
+			   metadata_size),
+		OPT_FILE("data",              'd', &cfg.data,      data),
+		OPT_FILE("metadata",          'M', &cfg.metadata,  metadata),
+		OPT_FLAG("limited-retry", 'l', &cfg.limited_retry,
+			 limited_retry),
+		OPT_FLAG("force-unit-access", 'f', &cfg.fua,       fua),
+		OPT_BYTE("prinfo",            'p', &cfg.prinfo,    prinfo),
+		OPT_FLAG("piremap",           'P', &cfg.piremap,   piremap),
+		OPT_FLAG("latency",           't', &cfg.latency,   latency),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
+		return err;
 
 	if (!cfg.data_size) {
 		nvme_show_error("Append size not provided");
@@ -1089,17 +1106,18 @@ static int changed_zone_list(int argc, char **argv, struct command *acmd, struct
 
 	struct config cfg = { };
 
-	NVME_ARGS(opts,
-		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,  namespace_id),
-		OPT_FLAG("rae",          'r', &cfg.rae,           rae));
+	OPT_ARGS(opts) = {
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_FLAG("rae",          'r', &cfg.rae,          rae),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
-		return errno;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0)
 		return err;
+
+	flags = nvme_args.output_flags;
 
 	if (!cfg.namespace_id) {
 		err = libnvme_get_nsid(hdl, &cfg.namespace_id);
@@ -1124,7 +1142,8 @@ static struct command list_cmd = {
 	.name = "list",
 	.help = "List all NVMe devices with Zoned Namespace Command Set support",
 	.fn = list,
-	.no_device = true,
+	.output_formats = OUTPUT_FORMATS_NORMAL,
+	.device = COMMAND_NO_DEVICE,
 };
 
 static struct command id_ctrl_cmd = {

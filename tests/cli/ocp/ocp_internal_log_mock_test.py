@@ -56,7 +56,7 @@ Tests in this module verify:
 
 Known defects are covered by expectedFailure tests asserting the correct
 behavior: a controller log's JSON header is decoded with the host
-header's layout, and invalid -a and -t values exit 0.
+header's layout, and an invalid -a value exits 0.
 
 Runs nowhere but Linux: libmock_nvme.so is an LD_PRELOAD shim.
 
@@ -80,6 +80,7 @@ LSP_RETAIN = 0
 LSP_CREATE = 1
 
 LPA_TELEMETRY_DA4 = 0x40
+DA1_TIMESTAMP_MS = 1700000000123
 
 OPC_SET_FEATURES = 0x09
 OPC_GET_FEATURES = 0x0A
@@ -374,6 +375,8 @@ class TestInternalLogHeaders(OCPInternalLogTestBase):
             reason + layout.REASON_VALID_FLAGS: b'\x07',
             reason + layout.REASON_VU_EXTENSION: bytes(range(0x80, 0xA0)),
             da1 + layout.DA1_MAJOR_VERSION: struct.pack('<HH', 5, 2),
+            da1 + layout.DA1_TIMESTAMP: DA1_TIMESTAMP_MS.to_bytes(
+                6, 'little') + b'\xA5\x5A',
             da1 + layout.DA1_PROFILES_SUPPORTED: b'\x03\x01',
             da1 + layout.DA1_STRING_LOG_SIZE: struct.pack('<Q', 0x1234),
             da1 + layout.DA1_SMART: b'\x05\x40\x01',
@@ -418,6 +421,7 @@ class TestInternalLogHeaders(OCPInternalLogTestBase):
         return {
             'Major Version': '0x0005',
             'Minor Version': '0x0002',
+            'Timestamp': '2023-11-14D|22:13:20:123',
             'Number Telemetry Profiles Supported': '0x03',
             'Telemetry Profile Selected': '0x01',
             'Telemetry String Log Size': '0x1234',
@@ -1204,17 +1208,15 @@ class TestInternalLogOptions(OCPInternalLogTestBase):
 
     def test_invalid_telemetry_type_is_rejected(self):
         result = self._invalid_option('-t', 'bogus')
-        self.assertIn('telemetry-type should be host, host0, host1 or '
-                      'controller.', result.stderr)
+        self.assertIn("invalid value 'bogus' for -t: expected one of: host, "
+                      "controller, host0, host1", result.stderr)
 
     @unittest.expectedFailure
     def test_invalid_data_area_exits_nonzero(self):
         """Defect: the data area check jumps out with err still 0."""
         self.assertNotEqual(self._invalid_option('-a', '5').returncode, 0)
 
-    @unittest.expectedFailure
     def test_invalid_telemetry_type_exits_nonzero(self):
-        """Defect: the telemetry type check jumps out with err still 0."""
         self.assertNotEqual(self._invalid_option('-t', 'bogus').returncode,
                             0)
 

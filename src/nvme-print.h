@@ -89,6 +89,166 @@ static inline int nvme_id_ns_nr_lbaf(struct nvme_id_ns *ns)
 	return n < max ? n : max;
 }
 
+/*
+ * A log page counts its entries, but the count comes from the device and
+ * the page may be shorter: a later read can report more entries than the
+ * buffer was sized for. Return: @nr, but at most the number of @size byte
+ * entries @len bytes hold after a @hdr byte header.
+ */
+static inline size_t nvme_log_nr_entries(size_t nr, size_t len, size_t hdr,
+					 size_t size)
+{
+	size_t max = len > hdr ? (len - hdr) / size : 0;
+
+	return nr < max ? nr : max;
+}
+
+/*
+ * The host discovery log record at offset @off of a page of @len bytes, or
+ * NULL if no whole record starts there. The page ends where its header
+ * says or where the buffer ends, whichever comes first. A record must hold
+ * at least its fixed part, and its length must not reach past the page.
+ */
+static inline struct nvme_host_ext_discovery_log *
+nvme_host_discovery_record(struct nvme_host_discovery_log *log, __u64 len,
+			   __u64 off)
+{
+	__u64 thdlpl = le32_to_cpu(log->thdlpl);
+	__u64 end = thdlpl < len ? thdlpl : len;
+	struct nvme_host_ext_discovery_log *rec;
+	__u32 tel;
+
+	if (off > end || end - off < sizeof(*rec))
+		return NULL;
+
+	rec = (void *)log + off;
+	tel = le32_to_cpu(rec->tel);
+	if (tel < sizeof(*rec) || tel > end - off)
+		return NULL;
+
+	return rec;
+}
+
+/*
+ * The extended attribute at @p of the host discovery log record @rec, or
+ * NULL if it, with its value, doesn't fit the record.
+ */
+static inline struct nvmf_ext_attr *
+nvme_host_discovery_exat(struct nvme_host_ext_discovery_log *rec, void *p)
+{
+	void *end = (void *)rec + le32_to_cpu(rec->tel);
+	struct nvmf_ext_attr *exat = p;
+
+	if (!shr_buf_has_room(p, end, sizeof(*exat)) ||
+	    !shr_buf_has_room(exat->exatval, end, le16_to_cpu(exat->exatlen)))
+		return NULL;
+
+	return exat;
+}
+
+/*
+ * The AVE discovery log record at offset @off of a page of @len bytes, or
+ * NULL if no whole record starts there, as nvme_host_discovery_record().
+ */
+static inline struct nvme_ave_discovery_log_entry *
+nvme_ave_discovery_record(struct nvme_ave_discovery_log *log, __u64 len,
+			  __u64 off)
+{
+	__u64 tadlpl = le32_to_cpu(log->tadlpl);
+	__u64 end = tadlpl < len ? tadlpl : len;
+	struct nvme_ave_discovery_log_entry *rec;
+	__u32 tel;
+
+	if (off > end || end - off < sizeof(*rec))
+		return NULL;
+
+	rec = (void *)log + off;
+	tel = le32_to_cpu(rec->tel);
+	if (tel < sizeof(*rec) || tel > end - off)
+		return NULL;
+
+	return rec;
+}
+
+/*
+ * Return: the length of the operating system specific parameters of a pull
+ * model DDC request log of @len bytes: what the header says, but no more
+ * than the buffer holds.
+ */
+static inline __u32
+nvme_pull_model_ddc_req_osp_len(struct nvme_pull_model_ddc_req_log *log,
+				__u64 len)
+{
+	__u64 tpdrpl = le32_to_cpu(log->tpdrpl);
+	__u64 end = tpdrpl < len ? tpdrpl : len;
+
+	if (end <= offsetof(struct nvme_pull_model_ddc_req_log, osp))
+		return 0;
+
+	return end - offsetof(struct nvme_pull_model_ddc_req_log, osp);
+}
+
+/*
+ * Copy the fixed part of the reachability group descriptor at offset @off
+ * of a log of @len bytes to @rgd. The descriptors differ in length, so
+ * they are only 4 byte aligned. Return: false if the descriptor doesn't
+ * fit with its namespace ID list, which nvme_reachability_ids() returns.
+ * The next descriptor is at nvme_reachability_group_next().
+ */
+static inline bool
+nvme_reachability_group(struct nvme_reachability_groups_log *log, __u64 len,
+			__u64 off, struct nvme_reachability_group_desc *rgd)
+{
+	if (off > len || len - off < sizeof(*rgd))
+		return false;
+
+	memcpy(rgd, (void *)log + off, sizeof(*rgd));
+	return le32_to_cpu(rgd->nnid) <=
+		(len - off - sizeof(*rgd)) / sizeof(rgd->nsid[0]);
+}
+
+static inline __u64
+nvme_reachability_group_next(struct nvme_reachability_group_desc *rgd,
+			     __u64 off)
+{
+	return off + sizeof(*rgd) +
+		(__u64)le32_to_cpu(rgd->nnid) * sizeof(rgd->nsid[0]);
+}
+
+/*
+ * The reachability association descriptor at offset @off of a log of @len
+ * bytes, as nvme_reachability_group().
+ */
+static inline bool
+nvme_reachability_association(struct nvme_reachability_associations_log *log,
+			      __u64 len, __u64 off,
+			      struct nvme_reachability_association_desc *rad)
+{
+	if (off > len || len - off < sizeof(*rad))
+		return false;
+
+	memcpy(rad, (void *)log + off, sizeof(*rad));
+	return le32_to_cpu(rad->nrid) <=
+		(len - off - sizeof(*rad)) / sizeof(rad->rgid[0]);
+}
+
+static inline __u64
+nvme_reachability_association_next(
+		struct nvme_reachability_association_desc *rad, __u64 off)
+{
+	return off + sizeof(*rad) +
+		(__u64)le32_to_cpu(rad->nrid) * sizeof(rad->rgid[0]);
+}
+
+/*
+ * The IDs which follow the reachability descriptor at offset @off, whose
+ * fixed part is @size bytes long. They are 4 byte aligned, as they need.
+ */
+static inline __le32 *nvme_reachability_ids(void *log, __u64 off, size_t size)
+{
+	return log + off + size;
+}
+
 /* Return: the LBA data size in bytes, or 0 if it is not representable. */
 static inline unsigned int nvme_lbaf_data_size(__u8 ds)
 {
@@ -187,7 +347,7 @@ struct print_ops {
 	void (*id_uuid_list)(const struct nvme_id_uuid_list  *uuid_list);
 	void (*lba_status)(struct nvme_lba_status *list, unsigned long len);
 	void (*lba_status_log)(void *lba_status, __u32 size, const char *devname);
-	void (*media_unit_stat_log)(struct nvme_media_unit_stat_log *mus);
+	void (*media_unit_stat_log)(struct nvme_media_unit_stat_log *mus, size_t len);
 	void (*mi_cmd_support_effects_log)(struct nvme_mi_cmd_supported_effects_log *mi_cmd_log, const char *devname);
 	void (*ns_list)(struct nvme_ns_list *ns_list);
 	void (*ns_list_log)(struct nvme_ns_list *log, const char *devname, bool alloc);
@@ -225,13 +385,17 @@ struct print_ops {
 	void (*show_finish)(void);
 	void (*mgmt_addr_list_log)(struct nvme_mgmt_addr_list_log *ma_log);
 	void (*rotational_media_info_log)(struct nvme_rotational_media_info_log *info);
-	void (*dispersed_ns_psub_log)(struct nvme_dispersed_ns_participating_nss_log *log);
+	void (*dispersed_ns_psub_log)(
+		struct nvme_dispersed_ns_participating_nss_log *log, __u64 len);
 	void (*reachability_groups_log)(struct nvme_reachability_groups_log *log, __u64 len);
 	void (*reachability_associations_log)(struct nvme_reachability_associations_log *log,
 					      __u64 len);
-	void (*host_discovery_log)(struct nvme_host_discovery_log *log);
-	void (*ave_discovery_log)(struct nvme_ave_discovery_log *log);
-	void (*pull_model_ddc_req_log)(struct nvme_pull_model_ddc_req_log *log);
+	void (*host_discovery_log)(struct nvme_host_discovery_log *log,
+				   __u64 len);
+	void (*ave_discovery_log)(struct nvme_ave_discovery_log *log,
+				  __u64 len);
+	void (*pull_model_ddc_req_log)(struct nvme_pull_model_ddc_req_log *log,
+				       __u64 len);
 
 	/* libnvme tree print functions */
 	void (*list_item)(struct libnvme_ns *n, struct shr_table *t);
@@ -418,12 +582,89 @@ static inline unsigned char *eom_desc_iter_vsdata(struct eom_desc_iter *it,
 	*vsdatalen = edlen;
 	return it->cur + vsdataoffset;
 }
+
+/*
+ * Walks the Media Unit Status Descriptors. A descriptor is CIO + 2 * MUCS
+ * bytes long. CIO shall be a multiple of 16, but a device may report
+ * another value, so each descriptor is copied before it is read.
+ */
+struct mus_desc_iter {
+	unsigned char *start;
+	unsigned char *p;
+	unsigned char *end;
+	unsigned char *chans;	// Channel Identifiers of the last descriptor
+	uint16_t remaining;
+	size_t need;		// log length needed if the buffer is short
+};
+
+static inline void mus_desc_iter_init(struct mus_desc_iter *it,
+		struct nvme_media_unit_stat_log *log, size_t len)
+{
+	it->start = (unsigned char *)log;
+	it->p = (unsigned char *)log->mus_desc;
+	it->end = it->start + len;
+	it->chans = NULL;
+	it->remaining = len < sizeof(*log) ? 0 : le16_to_cpu(log->nmu);
+	it->need = 0;
+}
+
+static inline bool mus_desc_iter_short(struct mus_desc_iter *it, size_t size)
+{
+	it->need = it->p - it->start + size;
+	it->remaining = 0;
+
+	return false;
+}
+
+/*
+ * Copies the next descriptor to @desc. Returns false at the end of the
+ * list, at the end of the buffer, or at a descriptor whose CIO points
+ * into its own header: the next descriptors cannot be located then.
+ */
+static inline bool mus_desc_iter_next(struct mus_desc_iter *it,
+		struct nvme_media_unit_stat_desc *desc)
+{
+	size_t size;
+
+	if (!it->remaining)
+		return false;
+
+	if (!shr_buf_has_room(it->p, it->end, sizeof(*desc)))
+		return mus_desc_iter_short(it, sizeof(*desc));
+
+	memcpy(desc, it->p, sizeof(*desc));
+	if (desc->cio < sizeof(*desc)) {
+		it->remaining = 0;
+		return false;
+	}
+
+	size = desc->cio + desc->mucs * sizeof(__le16);
+	if (!shr_buf_has_room(it->p, it->end, size))
+		return mus_desc_iter_short(it, size);
+
+	it->chans = it->p + desc->cio;
+	it->p += size;
+	it->remaining--;
+
+	return true;
+}
+
+/* Channel Identifier @i of the descriptor most recently returned. */
+static inline uint16_t mus_desc_iter_chan(const struct mus_desc_iter *it,
+		int i)
+{
+	__le16 id;
+
+	memcpy(&id, it->chans + i * sizeof(id), sizeof(id));
+
+	return le16_to_cpu(id);
+}
 void nvme_show_fid_support_effects_log(struct nvme_fid_supported_effects_log *fid_log,
 	const char *devname, nvme_print_flags_t flags);
 void nvme_show_mi_cmd_support_effects_log(struct nvme_mi_cmd_supported_effects_log *mi_cmd_log,
 	const char *devname, nvme_print_flags_t flags);
 void nvme_show_media_unit_stat_log(struct nvme_media_unit_stat_log *mus,
-	nvme_print_flags_t flags);
+	size_t len, nvme_print_flags_t flags);
 void nvme_show_supported_cap_config_log(struct nvme_supported_cap_config_list_log *caplog,
 				size_t len, nvme_print_flags_t flags);
 void nvme_show_ctrl_registers(void *bar, bool fabrics, nvme_print_flags_t flags);
@@ -573,20 +814,22 @@ void nvme_show_power_meas_log(struct nvme_power_meas_log *log, __u32 size,
 void nvme_show_rotational_media_info_log(struct nvme_rotational_media_info_log *info,
 					 nvme_print_flags_t flags);
 void nvme_show_dispersed_ns_psub_log(struct nvme_dispersed_ns_participating_nss_log *log,
-				     nvme_print_flags_t flags);
+				     __u64 len, nvme_print_flags_t flags);
 void nvme_show_reachability_groups_log(struct nvme_reachability_groups_log *log,
 				       __u64 len, nvme_print_flags_t flags);
 void nvme_show_reachability_associations_log(struct nvme_reachability_associations_log *log,
 					     __u64 len, nvme_print_flags_t flags);
 void nvme_show_host_discovery_log(struct nvme_host_discovery_log *log,
-				  nvme_print_flags_t flags);
+				  __u64 len, nvme_print_flags_t flags);
 void nvme_show_ave_discovery_log(struct nvme_ave_discovery_log *log,
-				 nvme_print_flags_t flags);
+				 __u64 len, nvme_print_flags_t flags);
 void nvme_show_pull_model_ddc_req_log(struct nvme_pull_model_ddc_req_log *log,
-				      nvme_print_flags_t flags);
+				      __u64 len, nvme_print_flags_t flags);
 void nvme_show_log(const char *devname, enum nvme_cmd_get_log_lid lid, __u32 nsid, __u16 lsi,
 		   __u8 lsp, void *log, __u32 len, nvme_print_flags_t flags);
 void nvme_show_pel_header(struct nvme_persistent_event_log *pevent_log_head, int human);
+struct nvme_persistent_event_entry *nvme_pel_event(void *pevent_log_info,
+		__u32 size, __u32 offset);
 void *nvme_pel_event_data(void *pevent_log_info, __u32 offset, __u32 len,
 		__u32 *buf_len);
 void nvme_show_pel_event_header(int i, struct nvme_persistent_event_entry *pevent_entry_head,

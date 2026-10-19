@@ -13,7 +13,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <inttypes.h>
 #include <libgen.h>
 #include <locale.h>
@@ -182,7 +181,6 @@ static int device_self_test(int argc, char **argv, struct command *acmd, struct 
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	struct libnvme_passthru_cmd cmd;
-	nvme_print_flags_t flags;
 	int err;
 
 	struct config {
@@ -199,21 +197,18 @@ static int device_self_test(int argc, char **argv, struct command *acmd, struct 
 		.wait		= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("ish",            'I', &cfg.ish,          ish),
-		  OPT_UINT("namespace-id",   'n', &cfg.namespace_id, namespace_id),
-		  OPT_BYTE("self-test-code", 's', &cfg.stc,          self_test_code),
-		  OPT_FLAG("wait",           'w', &cfg.wait,         wait));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("ish",            'I', &cfg.ish,  ish),
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_BYTE("self-test-code", 's', &cfg.stc,  self_test_code),
+		OPT_FLAG("wait",           'w', &cfg.wait, wait),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
 
 	if (cfg.stc == NVME_ST_CODE_RESERVED) {
 		__cleanup_libnvme_free struct nvme_self_test_log *log = NULL;
@@ -448,7 +443,6 @@ static int sanitize_cmd(int argc, char **argv, struct command *acmd, struct plug
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_libnvme_free struct nvme_id_ctrl *ctrl = NULL;
 	struct libnvme_passthru_cmd cmd;
-	nvme_print_flags_t flags;
 	int err;
 	bool sanitized;
 
@@ -488,28 +482,24 @@ static int sanitize_cmd(int argc, char **argv, struct command *acmd, struct plug
 		VAL_END()
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("ish",        'I', &cfg.ish,        ish),
-		  OPT_FLAG("no-dealloc", 'd', &cfg.no_dealloc, no_dealloc_desc),
-		  OPT_FLAG("oipbp",      'i', &cfg.oipbp,      oipbp_desc),
-		  OPT_BYTE("owpass",     'n', &cfg.owpass,     owpass_desc),
-		  OPT_FLAG("ause",       'u', &cfg.ause,       ause_desc),
-		  OPT_BYTE("sanact",     'a', &cfg.sanact,     sanact_desc, sanact),
-		  OPT_UINT("ovrpat",     'p', &cfg.ovrpat,     ovrpat_desc),
-		  OPT_FLAG("emvs",       'e', &cfg.emvs,       emvs_desc),
-		  OPT_FLAG("preq",       'q', &cfg.preq,       preq_desc),
-		  OPT_FLAG("wait",       'w', &cfg.wait,       wait),
-		  OPT_UINT("repeat",     'r', &cfg.repeat,     repeat));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("ish",    'I', &cfg.ish,    ish),
+		OPT_FLAG("no-dealloc", 'd', &cfg.no_dealloc, no_dealloc_desc),
+		OPT_FLAG("oipbp",  'i', &cfg.oipbp,  oipbp_desc),
+		OPT_BYTE("owpass", 'n', &cfg.owpass, owpass_desc),
+		OPT_FLAG("ause",   'u', &cfg.ause,   ause_desc),
+		OPT_BYTE("sanact", 'a', &cfg.sanact, sanact_desc, sanact),
+		OPT_UINT("ovrpat", 'p', &cfg.ovrpat, ovrpat_desc),
+		OPT_FLAG("emvs",   'e', &cfg.emvs,   emvs_desc),
+		OPT_FLAG("preq",   'q', &cfg.preq,   preq_desc),
+		OPT_FLAG("wait",   'w', &cfg.wait,   wait),
+		OPT_UINT("repeat", 'r', &cfg.repeat, repeat),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
 
 	ctrl = identify_ctrl(hdl);
 	if (!ctrl)
@@ -619,7 +609,6 @@ static int sanitize_ns_cmd(int argc, char **argv, struct command *acmd,
 
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	struct libnvme_passthru_cmd cmd;
-	nvme_print_flags_t flags;
 	int err;
 
 	struct config {
@@ -647,22 +636,18 @@ static int sanitize_ns_cmd(int argc, char **argv, struct command *acmd,
 		VAL_END()
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("ish",    'I', &cfg.ish,    ish),
-		  OPT_FLAG("ause",   'u', &cfg.ause,   ause_desc),
-		  OPT_BYTE("sanact", 'a', &cfg.sanact, sanact_desc, sanact),
-		  OPT_FLAG("emvs",   'e', &cfg.emvs,   emvs_desc),
-		  OPT_FLAG("preq",   'q', &cfg.preq,   preq_desc));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("ish",    'I', &cfg.ish,    ish),
+		OPT_FLAG("ause",   'u', &cfg.ause,   ause_desc),
+		OPT_BYTE("sanact", 'a', &cfg.sanact, sanact_desc, sanact),
+		OPT_FLAG("emvs",   'e', &cfg.emvs,   emvs_desc),
+		OPT_FLAG("preq",   'q', &cfg.preq,   preq_desc),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
-
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
 
 	switch (cfg.sanact) {
 	case NVME_SANITIZE_SANACT_EXIT_FAILURE:
@@ -771,17 +756,20 @@ static int format_cmd(int argc, char **argv, struct command *acmd, struct plugin
 		.bs		= 0,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_FLAG("ish",         'I', &cfg.ish,          ish),
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id_desired),
-		  OPT_BYTE("lbaf",         'l', &cfg.lbaf,         lbaf),
-		  OPT_BYTE("ses",          's', &cfg.ses,          ses),
-		  OPT_BYTE("pi",           'i', &cfg.pi,           pi),
-		  OPT_BYTE("pil",          'p', &cfg.pil,          pil),
-		  OPT_BYTE("ms",           'm', &cfg.mset,         mset),
-		  OPT_FLAG("reset",        'r', &cfg.reset,        reset),
-		  OPT_FLAG("force",          0, &cfg.force,        force),
-		  OPT_SUFFIX("block-size", 'b', &cfg.bs,           bs));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("ish",          'I', &cfg.ish,          ish),
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_id_desired, nvme_nsid_values),
+		OPT_BYTE("lbaf",         'l', &cfg.lbaf,         lbaf),
+		OPT_BYTE("ses",          's', &cfg.ses,          ses),
+		OPT_BYTE("pi",           'i', &cfg.pi,           pi),
+		OPT_BYTE("pil",          'p', &cfg.pil,          pil),
+		OPT_BYTE("ms",           'm', &cfg.mset,         mset),
+		OPT_FLAG("reset",        'r', &cfg.reset,        reset),
+		OPT_FLAG("force",        0,   &cfg.force,        force),
+		OPT_SUFFIX("block-size", 'b', &cfg.bs,           bs),
+		OPT_END()
+	};
 
 	/* set default timeout for format to 60 seconds */
 	nvme_args.timeout = 600000;
@@ -793,21 +781,16 @@ static int format_cmd(int argc, char **argv, struct command *acmd, struct plugin
 	err = open_exclusive(&ctx, &hdl, argc, argv, cfg.force, opts);
 	if (err) {
 		if (-err == EBUSY) {
-			nvme_show_error("Failed to open %s.", basename(argv[optind]));
+			nvme_show_error("Failed to open %s.",
+						basename(nvme_args.device));
 			nvme_show_error("Namespace is currently busy.");
 			if (!cfg.force)
 				nvme_show_error("Use the force [--force] option to ignore that.");
-		} else {
-			argconfig_print_help(desc, opts);
 		}
 		return err;
 	}
 
-	err = validate_output_format(nvme_args.output_format, &flags);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
+	flags = nvme_args.output_flags;
 
 	if (cfg.lbaf != 0xff && cfg.bs != 0) {
 		nvme_show_error(

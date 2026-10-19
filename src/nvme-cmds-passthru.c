@@ -13,7 +13,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <inttypes.h>
 #include <libgen.h>
 #include <locale.h>
@@ -113,7 +112,6 @@ static int passthru(int argc, char **argv, bool admin,
 	int err = 0;
 	const char *cmd_name = NULL;
 	struct timeval start_time, end_time;
-	nvme_print_flags_t flags_t;
 
 	struct passthru_config cfg = {
 		.opcode		= 0,
@@ -140,41 +138,38 @@ static int passthru(int argc, char **argv, bool admin,
 		.latency	= false,
 	};
 
-	NVME_ARGS(opts,
-		  OPT_BYTE("opcode",       'O', &cfg.opcode,       opcode),
-		  OPT_BYTE("flags",        'f', &cfg.flags,        cflags),
-		  OPT_BYTE("prefill",      'p', &cfg.prefill,      prefill),
-		  OPT_SHRT("rsvd",         'R', &cfg.rsvd,         rsvd),
-		  OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_desired),
-		  OPT_UINT("data-len",     'l', &cfg.data_len,     data_len),
-		  OPT_UINT("metadata-len", 'm', &cfg.metadata_len, metadata_len),
-		  OPT_UINT("cdw2",         '2', &cfg.cdw2,         cdw2),
-		  OPT_UINT("cdw3",         '3', &cfg.cdw3,         cdw3),
-		  OPT_UINT("cdw10",        '4', &cfg.cdw10,        cdw10),
-		  OPT_UINT("cdw11",        '5', &cfg.cdw11,        cdw11),
-		  OPT_UINT("cdw12",        '6', &cfg.cdw12,        cdw12),
-		  OPT_UINT("cdw13",        '7', &cfg.cdw13,        cdw13),
-		  OPT_UINT("cdw14",        '8', &cfg.cdw14,        cdw14),
-		  OPT_UINT("cdw15",        '9', &cfg.cdw15,        cdw15),
-		  OPT_FILE("input-file",   'i', &cfg.input_file,   input),
-		  OPT_FILE("metadata",     'M', &cfg.metadata,     metadata),
-		  OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw_dump),
-		  OPT_FLAG("show-command", 's', &cfg.show_command, show),
-		  OPT_FLAG("read",         'r', &cfg.read,         re),
-		  OPT_FLAG("write",        'w', &cfg.write,        wr),
-		  OPT_FLAG("latency",      'T', &cfg.latency,      latency));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("opcode",       'O', &cfg.opcode,       opcode),
+		OPT_BYTE("flags",        'f', &cfg.flags,        cflags),
+		OPT_BYTE("prefill",      'p', &cfg.prefill,      prefill),
+		OPT_SHRT("rsvd",         'R', &cfg.rsvd,         rsvd),
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id,
+			 namespace_desired, nvme_nsid_values),
+		OPT_UINT("data-len",     'l', &cfg.data_len,     data_len),
+		OPT_UINT("metadata-len", 'm', &cfg.metadata_len, metadata_len),
+		OPT_UINT("cdw2",         '2', &cfg.cdw2,         cdw2),
+		OPT_UINT("cdw3",         '3', &cfg.cdw3,         cdw3),
+		OPT_UINT("cdw10",        '4', &cfg.cdw10,        cdw10),
+		OPT_UINT("cdw11",        '5', &cfg.cdw11,        cdw11),
+		OPT_UINT("cdw12",        '6', &cfg.cdw12,        cdw12),
+		OPT_UINT("cdw13",        '7', &cfg.cdw13,        cdw13),
+		OPT_UINT("cdw14",        '8', &cfg.cdw14,        cdw14),
+		OPT_UINT("cdw15",        '9', &cfg.cdw15,        cdw15),
+		OPT_FILE("input-file",   'i', &cfg.input_file,   input),
+		OPT_FILE("metadata",     'M', &cfg.metadata,     metadata),
+		OPT_FLAG("raw-binary",   'b', &cfg.raw_binary,   raw_dump),
+		OPT_FLAG("show-command", 's', &cfg.show_command, show),
+		OPT_FLAG("read",         'r', &cfg.read,         re),
+		OPT_FLAG("write",        'w', &cfg.write,        wr),
+		OPT_FLAG("latency",      'T', &cfg.latency,      latency),
+		OPT_END()
+	};
 
 	err = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (err)
 		return err;
 
-	err = validate_output_format(nvme_args.output_format, &flags_t);
-	if (err < 0) {
-		nvme_show_error("Invalid output format");
-		return err;
-	}
-
-	if (!argconfig_parse_seen(opts, "opcode")) {
+	if (!argconfig_given(opts, &cfg.opcode)) {
 		nvme_show_error("%s: opcode parameter required", acmd->name);
 		return -EINVAL;
 	}

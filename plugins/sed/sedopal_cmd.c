@@ -44,7 +44,6 @@ bool sedopal_lock_ro;
 /*
  * Verbose discovery
  */
-bool sedopal_discovery_verbose;
 
 /*
  * discovery with udev output
@@ -1042,6 +1041,8 @@ static int sedopal_discover_device(struct libnvme_transport_handle *hdl,
 {
 	int rc;
 
+	/* --dry-run returns success without filling the buffer */
+	memset(buf, 0, len);
 	rc = libnvme_sed_discover(hdl, buf, len);
 	if (rc) {
 		nvme_show_err(rc, "level 0 discovery");
@@ -1080,7 +1081,7 @@ int sedopal_cmd_discover(struct libnvme_transport_handle *hdl)
 	} else
 		sedopal_print_locking_features(sfp.locking_desc);
 
-	if (!sedopal_discovery_verbose)
+	if (!nvme_args.verbose)
 		return rc;
 
 	sedopal_print_features(&sfp);

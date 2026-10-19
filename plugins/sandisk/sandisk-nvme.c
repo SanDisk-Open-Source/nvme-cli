@@ -23,6 +23,7 @@
 #include <shared/fs-util.h>
 #include <shared/io-util.h>
 #include <shared/parse-util.h>
+#include <shared/string-util.h>
 
 #include "global-ctx.h"
 #include "nvme-cmds.h"
@@ -394,7 +395,6 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 		"  HOST - Host-initiated telemetry.\n" \
 		"  CONTROLLER - Controller-initiated telemetry.\n" \
 		"  BOTH - Both HOST and CONTROLLER telemetry packaged in tar file.";
-	const char *verbose = "Display more debug messages.";
 	const char *file_size =
 		"Output file size. Deprecated, see man page for supported devices.";
 	const char *offset =
@@ -411,14 +411,21 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 
+	struct argconfig_opt_val types[] = {
+		VAL_ENUM("NONE", SNDK_TELEMETRY_TYPE_NONE),
+		VAL_ENUM("HOST", SNDK_TELEMETRY_TYPE_HOST),
+		VAL_ENUM("CONTROLLER", SNDK_TELEMETRY_TYPE_CONTROLLER),
+		VAL_ENUM("BOTH", SNDK_TELEMETRY_TYPE_BOTH),
+		VAL_END()
+	};
+
 	struct config {
 		char *file;
 		__u32 xfer_size;
-		int data_area;
+		__u32 data_area;
 		__u64 file_size;
 		__u64 offset;
-		char *type;
-		bool verbose;
+		int type;
 	};
 
 	struct config cfg = {
@@ -427,19 +434,18 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 		.data_area = 0,
 		.file_size = 0,
 		.offset = 0,
-		.type = NULL,
-		.verbose = false,
+		.type = SNDK_TELEMETRY_TYPE_NONE,
 	};
 
-	NVME_ARGS(opts,
+	OPT_ARGS(opts) = {
 		OPT_FILE("output-file",   'O', &cfg.file,      file),
 		OPT_UINT("transfer-size", 's', &cfg.xfer_size, size),
 		OPT_UINT("data-area",     'd', &cfg.data_area, data_area),
-		OPT_FILE("type",          't', &cfg.type,      type),
-		OPT_FLAG("verbose",       'V', &cfg.verbose,   verbose),
+		OPT_ENUM("type",          't', &cfg.type,      type, types),
 		OPT_LONG("file-size",     'f', &cfg.file_size, file_size),
 		OPT_LONG("offset",        'e', &cfg.offset,    offset),
-		OPT_END());
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
@@ -470,7 +476,7 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 		}
 		close(verify_file);
 		remove(cfg.file);
-		strncpy(f, cfg.file, PATH_MAX - 5);
+		shr_strscpy(f, cfg.file, sizeof(f));
 	} else {
 		sndk_UtilsGetTime(&timeInfo);
 		memset(timeStamp, 0, sizeof(timeStamp));
@@ -494,7 +500,7 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 			ret = -1;
 			goto out;
 		}
-		strcat(f, ".bin");
+		shr_strscat(f, ".bin", sizeof(f));
 	}
 	nvme_show_error("%s: filename = %s", __func__, f);
 
@@ -506,24 +512,11 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 		}
 	}
 
-	if (!cfg.type || !strcmp(cfg.type, "NONE") || !strcmp(cfg.type, "none")) {
-		telemetry_type = SNDK_TELEMETRY_TYPE_NONE;
+	telemetry_type = cfg.type;
+	if (telemetry_type == SNDK_TELEMETRY_TYPE_NONE)
 		telemetry_data_area = 0;
-	} else if (!strcmp(cfg.type, "HOST") || !strcmp(cfg.type, "host")) {
-		telemetry_type = SNDK_TELEMETRY_TYPE_HOST;
+	else
 		telemetry_data_area = cfg.data_area;
-	} else if (!strcmp(cfg.type, "CONTROLLER") || !strcmp(cfg.type, "controller")) {
-		telemetry_type = SNDK_TELEMETRY_TYPE_CONTROLLER;
-		telemetry_data_area = cfg.data_area;
-	} else if (!strcmp(cfg.type, "BOTH") || !strcmp(cfg.type, "both")) {
-		telemetry_type = SNDK_TELEMETRY_TYPE_BOTH;
-		telemetry_data_area = cfg.data_area;
-	} else {
-		nvme_show_error(
-			"ERROR: SNDK: Invalid type - Must be NONE, HOST, CONTROLLER, or BOTH\n");
-		ret = -1;
-		goto out;
-	}
 
 	capabilities = sndk_get_drive_capabilities(ctx, hdl);
 
@@ -569,7 +562,7 @@ static int sndk_vs_internal_fw_log(int argc, char **argv,
 			ret = -1;
 			goto out;
 		}
-		ret = sndk_do_cap_udui(hdl, f, xfer_size, cfg.verbose);
+		ret = sndk_do_cap_udui(hdl, f, xfer_size, nvme_args.verbose);
 		goto out;
 	}
 
@@ -619,11 +612,16 @@ static int sndk_vs_smart_add_log(int argc, char **argv,
 		.namespace_id = NVME_NSID_ALL,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("interval",          'i', &cfg.interval,         interval),
-		OPT_BYTE("log-page-version",  'l', &cfg.log_page_version, log_page_version),
-		OPT_LIST("log-page-mask",     'p', &cfg.log_page_mask,    log_page_mask),
-		OPT_UINT("namespace-id",      'n', &cfg.namespace_id,     namespace_id));
+	OPT_ARGS(opts) = {
+		OPT_BYTE("interval",         'i', &cfg.interval,     interval),
+		OPT_BYTE("log-page-version", 'l', &cfg.log_page_version,
+			 log_page_version),
+		OPT_LIST("log-page-mask", 'p', &cfg.log_page_mask,
+			 log_page_mask),
+		OPT_UINT("namespace-id", 'n', &cfg.namespace_id, namespace_id,
+			 nvme_nsid_values),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
@@ -788,8 +786,10 @@ static int sndk_drive_resize(int argc, char **argv,
 		.size = 0,
 	};
 
-	NVME_ARGS(opts,
-		OPT_UINT("size", 's', &cfg.size, size));
+	OPT_ARGS(opts) = {
+		OPT_LONG("size", 's', &cfg.size, size),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
@@ -906,7 +906,7 @@ static void sndk_print_fw_act_history_log_normal(__u8 *data, int num_entries)
 			printf("   ");
 			sndk_get_commit_action_bin(
 			    fw_act_hist_log->entry[entryIdx].commit_action_type,
-			    (char *)&commit_action_bin);
+			    commit_action_bin, sizeof(commit_action_bin));
 			printf("  %s", (char *)commit_action_bin);
 			printf("  ");
 			if (!le16_to_cpu(fw_act_hist_log->entry[entryIdx].result))
@@ -971,6 +971,9 @@ static void sndk_print_fw_act_history_log_json(__u8 *data, int num_entries)
 			entryIdx = oldestEntryIdx;
 
 		for (i = 0; i < num_entries; i++) {
+			struct sndk_fw_act_history_log_entry_c2 *e =
+				&fw_act_hist_log->entry[entryIdx];
+
 			memcpy(previous_fw,
 				(char *)&
 				(fw_act_hist_log->entry[entryIdx].previous_fw_version),
@@ -1005,15 +1008,15 @@ static void sndk_print_fw_act_history_log_json(__u8 *data, int num_entries)
 
 			sndk_get_commit_action_bin(
 			    fw_act_hist_log->entry[entryIdx].commit_action_type,
-			    (char *)&commit_action_bin);
+			    commit_action_bin, sizeof(commit_action_bin));
 			json_object_add_value_string(root, "Action", commit_action_bin);
 
 			if (!le16_to_cpu(fw_act_hist_log->entry[entryIdx].result)) {
 				json_object_add_value_string(root, "Result", "pass");
 			} else {
-				sprintf((char *)fail_str, "fail #%d",
-					(int)(le16_to_cpu(
-						fw_act_hist_log->entry[entryIdx].result)));
+				snprintf((char *)fail_str, sizeof(fail_str),
+					 "fail #%d",
+					 (int)(le16_to_cpu(e->result)));
 				json_object_add_value_string(root, "Result", fail_str);
 			}
 
@@ -1135,7 +1138,9 @@ static int sndk_vs_fw_activate_history(int argc, char **argv,
 		.output_format = "normal",
 	};
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
@@ -1183,7 +1188,9 @@ static int sndk_clear_fw_activate_history(int argc, char **argv,
 	__u64 capabilities = 0;
 	int ret;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
@@ -1253,7 +1260,9 @@ static int sndk_capabilities(int argc, char **argv,
 	uint64_t capabilities = 0;
 	int ret;
 
-	NVME_ARGS(opts);
+	OPT_ARGS(opts) = {
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)

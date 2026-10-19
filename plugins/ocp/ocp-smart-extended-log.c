@@ -11,6 +11,8 @@
 
 #include <libnvme.h>
 
+#include <shared/hex-util.h>
+
 #include "cleanup.h"
 #include "global-ctx.h"
 #include "nvme-print.h"
@@ -32,10 +34,7 @@ static __u8 scao_guid[GUID_LEN] = {
 /* Render a log page GUID as GUID_LEN * 2 lower-case hex digits. */
 static void format_guid(char str[GUID_LEN * 2 + 1], const __u8 guid[GUID_LEN])
 {
-	int i;
-
-	for (i = 0; i < GUID_LEN; i++)
-		sprintf(&str[i * 2], "%02x", guid[i]);
+	shr_bin_to_hex(str, GUID_LEN * 2 + 1, guid, GUID_LEN, 0);
 }
 
 static int get_c0_log_page(struct libnvme_transport_handle *hdl, char *format,
@@ -114,14 +113,17 @@ out:
 int ocp_smart_add_log(int argc, char **argv, struct command *acmd,
 		      struct plugin *plugin)
 {
+	bool no_uuid_flag = false;
 	const char *desc = "Retrieve the extended SMART health data.";
 	const char *no_uuid = "Skip UUID index search (UUID index not required for OCP 1.0)";
 	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
 	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl = NULL;
 	int ret = 0;
 
-	NVME_ARGS(opts,
-		OPT_FLAG("no-uuid", 'n', NULL, no_uuid));
+	OPT_ARGS(opts) = {
+		OPT_FLAG("no-uuid", 'n', &no_uuid_flag, no_uuid),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
@@ -129,7 +131,7 @@ int ocp_smart_add_log(int argc, char **argv, struct command *acmd,
 
 	ret = get_c0_log_page(hdl, nvme_args.output_format,
 			      nvme_args.output_format_ver,
-			      !argconfig_parse_seen(opts, "no-uuid"));
+			      !no_uuid_flag);
 	if (ret)
 		nvme_show_error("ERROR : OCP : Failure reading the C0 Log Page, ret = %d",
 			ret);

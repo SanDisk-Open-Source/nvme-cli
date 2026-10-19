@@ -14,4 +14,15 @@ test_resolve = executable(
     ],
 )
 
-test('daemon-util - resolve', test_resolve)
+test('daemon-util - resolve', test_resolve, suite: 'unit')
+
+test_work = executable(
+    'test-daemon-util-work',
+    ['test-work.c'],
+    dependencies: [
+        ccan_dep,
+        daemon_util_dep,
+    ],
+)
+
+test('daemon-util - work', test_work, suite: 'unit')

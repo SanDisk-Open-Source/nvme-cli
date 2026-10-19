@@ -175,6 +175,49 @@ const char *hwcomp_id_to_string(__u32 id)
 	return "Reserved";
 }
 
+/*
+ * The descriptor at offset of the descriptors of log. Returns false at the
+ * end, and when the descriptor does not fit into the rest of the log.
+ */
+bool hwcomp_desc_entry(struct hwcomp_log *log, __u64 offset,
+		       struct hwcomp_desc_entry *e)
+{
+	__u64 remain, date_lot_size, add_info_size;
+	__u8 *p;
+
+	if (offset >= log->desc_len)
+		return false;
+	remain = log->desc_len - offset;
+	if (remain < sizeof(struct hwcomp_desc))
+		return false;
+	remain -= sizeof(struct hwcomp_desc);
+
+	p = (__u8 *)log->desc + offset;
+	e->desc = (struct hwcomp_desc *)p;
+	p += sizeof(struct hwcomp_desc);
+
+	/* The sizes count dwords */
+	date_lot_size = le64_to_cpu(e->desc->date_lot_size);
+	if (date_lot_size > remain / sizeof(__le32))
+		return false;
+	date_lot_size *= sizeof(__le32);
+	remain -= date_lot_size;
+
+	add_info_size = le64_to_cpu(e->desc->add_info_size);
+	if (add_info_size > remain / sizeof(__le32))
+		return false;
+	add_info_size *= sizeof(__le32);
+
+	e->date_lot_size = date_lot_size;
+	e->date_lot_code = date_lot_size ? p : NULL;
+	e->add_info_size = add_info_size;
+	e->add_info = add_info_size ? p + date_lot_size : NULL;
+	e->desc_size = sizeof(struct hwcomp_desc) + date_lot_size +
+		add_info_size;
+
+	return true;
+}
+
 static int get_hwcomp_log_data(struct libnvme_transport_handle *hdl, struct hwcomp_log *log)
 {
 	size_t desc_offset = offsetof(struct hwcomp_log, desc);
@@ -264,11 +307,7 @@ static int get_hwcomp_log(struct libnvme_transport_handle *hdl, __u32 id, bool l
 		.desc = NULL,
 	};
 
-	ret = validate_output_format(nvme_args.output_format, &fmt);
-	if (ret < 0) {
-		nvme_show_error("error: ocp: invalid output format");
-		return ret;
-	}
+	fmt = nvme_args.output_flags;
 
 	ret = get_hwcomp_log_data(hdl, &log);
 	if (ret) {
@@ -314,8 +353,11 @@ int ocp_hwcomp_log(int argc, char **argv, struct command *acmd, struct plugin *p
 		VAL_END()
 	};
 
-	NVME_ARGS(opts, OPT_LONG("comp-id", 'i', &cfg.id, id_desc, id),
-		  OPT_FLAG("list", 'l', &cfg.list, list_desc));
+	OPT_ARGS(opts) = {
+		OPT_LONG("comp-id", 'i', &cfg.id,   id_desc, id),
+		OPT_FLAG("list",    'l', &cfg.list, list_desc),
+		OPT_END()
+	};
 
 	ret = parse_and_open(&ctx, &hdl, argc, argv, desc, opts);
 	if (ret)
