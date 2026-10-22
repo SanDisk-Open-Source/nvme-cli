@@ -34,6 +34,7 @@ _LID_HOST_DISCOVERY = 0x71
 _LID_AVE_DISCOVERY = 0x72
 _LID_PULL_MODEL_DDC_REQ = 0x73
 _LID_POWER_MEASUREMENT = 0x25
+_LID_VOLTAGE_MEASUREMENT = 0x27
 _LID_REACHABILITY_GROUPS = 0x1a
 _LID_REACHABILITY_ASSOCIATIONS = 0x1b
 _LID_DISPERSED_NS_PSUB = 0x17
@@ -45,6 +46,7 @@ _ADLPE_LEN = 232          # struct nvme_ave_discovery_log_entry
 _ATR_LEN = 20             # struct nvme_ave_tr_record
 _PULL_HEADER_LEN = 8      # struct nvme_pull_model_ddc_req_log
 _POWER_MEAS_HEADER_LEN = 64  # struct nvme_power_meas_log
+_VOLTAGE_MEAS_HEADER_LEN = 64  # struct nvme_voltage_measurement_log
 
 _NVMF_TRTYPE_TCP = 3
 _NVMF_ADDR_FAMILY_IP4 = 1
@@ -117,6 +119,23 @@ def _power_meas_log(nphd, ndescs):
     struct.pack_into('<BBHIIH', hdr, 0, 1, 0, 0, sze, 0, nphd)
     descs = b''.join(struct.pack('<II', i + 1, 0) for i in range(ndescs))
     return bytes(hdr) + descs
+
+
+def _voltage_meas_log(nvmde, ndescs):
+    """A voltage measurement log page which says it has @nvmde interval
+    voltage measurement descriptors and is as long as @ndescs of them.
+    The sensor is scaled by 0.001 V, supplies 12 V, and its maximum
+    overvoltage is 12.5 V."""
+    vlmsz = _VOLTAGE_MEAS_HEADER_LEN + 2 * ndescs
+    vsi = (1 << 14) | 240
+    ovol = (1 << 14) | 12500
+    hdr = struct.pack('<BBHIHHH8sHH6xHHH8sBHHH8sB2x', 1, 0x13, vsi, vlmsz,
+                      ndescs, nvmde, 0, bytes(8), 0, 0,
+                      ovol, 3, 12400, bytes(8), 255,
+                      0x3fff, 0, 0, bytes(8), 255)
+    assert len(hdr) == _VOLTAGE_MEAS_HEADER_LEN
+    descs = b''.join(struct.pack('<H', 12000 + i) for i in range(ndescs))
+    return hdr + descs
 
 
 def _reachability_log(descs, fixed_len=32):
@@ -350,6 +369,27 @@ class DiscoveryLogsTest(unittest.TestCase):
         out = self._run_json('power-measurement')
         self.assertEqual(out['nphd'], 100)
         self.assertEqual(len(out['descs']), 1)
+
+    def test_voltage_measurement_values(self):
+        self.server.logs[_LID_VOLTAGE_MEASUREMENT] = _voltage_meas_log(2, 2)
+        out = self._run('voltage-measurement')
+        self.assertIn(('Maximum Overvoltage Value', '12.500 V'), _kv(out))
+        self.assertIn(('Overvoltage Valid', '1'), _kv(out))
+        self.assertIn(('Minimum Undervoltage Value', 'not measured'), _kv(out))
+        out = self._run_json('voltage-measurement')
+        self.assertEqual(out['movv'], 12500)
+        self.assertEqual(out['ovv'], 1)
+        self.assertEqual(out['vmc'], 1)
+        self.assertEqual([d['volv'] for d in out['ivmd']], [12000, 12001])
+
+    def test_voltage_measurement_more_descriptors_than_the_page(self):
+        """More interval voltage measurement descriptors than the page
+        holds: only those in it are printed."""
+        self.server.logs[_LID_VOLTAGE_MEASUREMENT] = _voltage_meas_log(100, 1)
+        self._run('voltage-measurement', '--verbose')
+        out = self._run_json('voltage-measurement')
+        self.assertEqual(out['nvmde'], 100)
+        self.assertEqual(len(out['ivmd']), 1)
 
     def test_reachability_groups_descriptors_at_their_offsets(self):
         """The descriptors differ in length: the second follows the

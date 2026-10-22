@@ -139,6 +139,7 @@ adoc_sources_man1 = [
     'nvme-log-smart',
     'nvme-log-supported-cap-config',
     'nvme-log-telemetry',
+    'nvme-log-voltage-measurement',
     'nvme-mangoboost-id-ctrl',
     'nvme-micron-clear-pcie-errors',
     'nvme-micron-id-ctrl',
