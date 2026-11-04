@@ -34,7 +34,12 @@ static void print_hwcomp_desc(struct hwcomp_desc_entry *e, bool list, int num)
 	printf("    Revision: 0x%016"PRIx64"\n", le64_to_cpu(e->desc->rev));
 	printf("    Manufacture Code: 0x%016"PRIx64"\n", le64_to_cpu(e->desc->mfg_code));
 	print_array("    Date/Lot Code", e->date_lot_code, e->date_lot_size);
-	print_array("    Additional Information", e->add_info, e->add_info_size);
+	if (le32_to_cpu(e->desc->id) == HWCOMP_ID_COUNTRY)
+		printf("    Additional Information: %s\n", (char *)e->add_info);
+	else
+		print_array("    Additional Information",
+				e->add_info,
+				e->add_info_size);
 }
 
 static void stdout_hwcomp_log(struct hwcomp_log *log, __u32 id, bool list)
