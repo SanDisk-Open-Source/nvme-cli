@@ -437,6 +437,7 @@ static const struct {
 	{ { "ocp", "internal-log", "--print-only" }, "--host-generate",
 	  .opts = { {}, { "--data-area=2" }, { "--data-area=4" },
 		    { "--telemetry-type=controller", "--data-area=3" } } },
+	{ { "feat", "voltage-meas" }, "--sel" },
 };
 
 #define NR_COMMANDS ARRAY_SIZE(commands)
