@@ -43,6 +43,7 @@ FID_PERF_CHARACTERISTICS = 0x1c
 FID_POWER_LIMIT = 0x23
 FID_POWER_THRESH = 0x24
 FID_POWER_MEASUREMENT = 0x25
+FID_VOLTAGE_THRESHOLD = 0x26
 FID_VOLTAGE_MEASUREMENT = 0x27
 
 PERF_ATTR_SIZE = 4096
@@ -182,6 +183,10 @@ class FeatPluginSetTest(FeaturesTestBase):
              {'cdw11': 10 | 2 << 16 | 3 << 20 | 1 << 31, 'uidx': 1}),
             (['power-meas', '--act=1', '--pmts=2', '--smt=60'],
              FID_POWER_MEASUREMENT, {'cdw11': 1 | 2 << 4 | 60 << 16}),
+            (['voltage-thresh', '--vsens=2', '--evt', '--ovt=1300',
+              '--uvt=1100'],
+             FID_VOLTAGE_THRESHOLD,
+             {'cdw11': 1100 | 1300 << 14 | 1 << 28 | 2 << 29}),
             (['err-recovery', '--nsid=1', '--tler=10', '--dulbe'],
              FID_ERR_RECOVERY, {'cdw11': 10 | 1 << 16, 'nsid': 1}),
             (['int-coalesce', '--thr=5', '--time=10'],
@@ -202,6 +207,13 @@ class FeatPluginSetTest(FeaturesTestBase):
                     cmd = self.set_feature('feat', args[0], self.ctrl,
                                            *args[1:], *save)
                     self.assertFields(cmd, fid, sv=bool(save), **fields)
+
+    def test_voltage_threshold_invalid(self):
+        for args in (['--vsens=4', '--evt'], ['--ovt=16384']):
+            with self.subTest(args=args):
+                result = self.nvme('feat', 'voltage-thresh', self.ctrl, *args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.set_features(), [])
 
     def test_voltage_measurement_start(self):
         """Start Voltage Measurements data: LVOLTA, SVMT and LVOLT"""

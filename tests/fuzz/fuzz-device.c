@@ -452,6 +452,7 @@ static const struct {
 	{ { "ocp", "telemetry-string-log", "--print-only" },
 	  .opts = { {}, { "--no-uuid" } } },
 	{ { "feat", "voltage-meas" }, "--sel" },
+	{ { "feat", "voltage-thresh" }, "--sel" },
 };
 
 #define NR_COMMANDS ARRAY_SIZE(commands)

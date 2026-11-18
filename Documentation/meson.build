@@ -63,6 +63,7 @@ adoc_sources_man1 = [
     'nvme-feat-temp-thresh',
     'nvme-feat-timestamp',
     'nvme-feat-voltage-meas',
+    'nvme-feat-voltage-thresh',
     'nvme-feat-volatile-wc',
     'nvme-feat-write-atom-normal',
     'nvme-flush',

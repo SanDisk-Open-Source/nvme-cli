@@ -1,0 +1,97 @@
+nvme-feat-voltage-thresh(1)
+===========================
+
+NAME
+----
+nvme-feat-voltage-thresh - Get and set voltage threshold feature
+
+SYNOPSIS
+--------
+[verse]
+'nvme' [<global-options>] 'feat voltage-thresh' <device>
+			[--uvt=<uvt>] [--ovt=<ovt>] [--evt] [--vsens=<sensor>]
+			[--sel=<select> | -S <select>] [--save | -s]
+
+DESCRIPTION
+-----------
+Get and set voltage threshold feature (Feature Identifier 26h), which
+controls whether the controller reports a Voltage Threshold event and
+specifies the overvoltage and undervoltage thresholds of a voltage sensor
+that trigger it.
+
+The <device> parameter is mandatory and may be either the NVMe character
+device (ex: /dev/nvme0), or a namespace block device (ex: /dev/nvme0n1).
+
+If any of `--evt`, `--ovt` or `--uvt` is specified, the command issues a Set
+Features command. Otherwise, it issues a Get Features command for the voltage
+sensor given by `--vsens` (default 0) and displays the result.
+
+The controller aborts a Set Features command that enables the feature with
+both thresholds cleared to 0, or that selects an unsupported voltage sensor.
+
+On success it returns 0, error code otherwise.
+
+OPTIONS
+-------
+--uvt=<uvt>::
+	Undervoltage Threshold (UVT), 14 bits, in units of the Voltage Sample
+	Scale (VOLSS) reported in the Identify Controller data structure.
+
+--ovt=<ovt>::
+	Overvoltage Threshold (OVT), 14 bits, in units of the Voltage Sample
+	Scale (VOLSS) reported in the Identify Controller data structure.
+
+--evt::
+	Enable Voltage Threshold (EVT): the controller collects interval
+	voltage measurements of the selected sensor and reports a single
+	Voltage Threshold event when a threshold is crossed. The controller
+	clears this bit after reporting the event.
+
+--vsens=<sensor>::
+	Voltage Sensor Select (VSENS): voltage sensor, 0-3 (Voltage Sensor
+	1-4), whose thresholds are set or retrieved.
+
+-S <select>::
+--sel=<select>::
+	Select (SEL): This field specifies which value of the attributes
+	to return in the provided data:
++
+[]
+|==================
+|Select|Name|Description
+|0|current|Current
+|1|default|Default
+|2|saved|Saved
+|3|supported|Supported capabilities
+|==================
+
+-s::
+--save::
+	Save the attribute so that it persists through all power states and
+	resets.
+
+include::global-options.txt[]
+
+EXAMPLES
+--------
+* Get the current voltage threshold of voltage sensor 2:
++
+------------
+# nvme feat voltage-thresh /dev/nvme0 --vsens=1
+------------
+
+* Enable voltage threshold events on voltage sensor 1:
++
+------------
+# nvme feat voltage-thresh /dev/nvme0 --vsens=0 --evt --uvt=1100 --ovt=1300
+------------
+
+* Set thresholds of voltage sensor 1 without enabling the event:
++
+------------
+# nvme feat voltage-thresh /dev/nvme0 --vsens=0 --ovt=1300 --uvt=1100
+------------
+
+NVME
+----
+Part of the nvme-user suite.

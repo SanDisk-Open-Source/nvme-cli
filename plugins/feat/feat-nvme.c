@@ -27,6 +27,7 @@
 #define POWER_LIMIT_DESC "Get and set power limit feature"
 #define POWER_THRESH_DESC "Get and set power threshold feature"
 #define POWER_MEAS_DESC "Get and set power measurement feature"
+#define VOLTAGE_THRESH_DESC "Get and set voltage threshold feature"
 #define VOLTAGE_MEAS_DESC "Get and set voltage measurement feature"
 #define ERR_RECOVERY_DESC "Get and set error recovery feature"
 #define NUM_QUEUES_DESC "Get and set number of queues feature"
@@ -168,6 +169,7 @@ static const char *volatile_wc_feat = "volatile write cache feature";
 static const char *power_limit_feat = "power limit feature";
 static const char *power_thresh_feat = "power threshold feature";
 static const char *power_meas_feat = "power measurement feature";
+static const char *voltage_thresh_feat = "voltage threshold feature";
 static const char *voltage_meas_feat = "voltage measurement feature";
 static const char *err_recovery_feat = "error recovery feature";
 static const char *num_queues_feat = "number of queues feature";
@@ -1006,6 +1008,104 @@ static int feat_power_meas(int argc, char **argv, struct command *cmd,
 	else
 		err = feat_get(hdl, fid, 0, cfg.feat.sel, cfg.uidx,
 			       power_meas_feat);
+
+	return err;
+}
+
+struct voltage_thresh_config {
+	__u16 uvt;
+	__u16 ovt;
+	bool evt;
+	__u8 vsens;
+	struct feat_args feat;
+};
+
+static int voltage_thresh_set(struct libnvme_transport_handle *hdl,
+			      const __u8 fid,
+			      struct voltage_thresh_config *cfg)
+{
+	const __u8 vsens_max = NVME_FEAT_VOLTAGE_THRESHOLD_VSENS_MASK;
+	const __u16 vt_max = NVME_FEAT_VOLTAGE_THRESHOLD_OVT_MASK;
+	struct libnvme_passthru_cmd cmd;
+	int err;
+
+	if (cfg->vsens > vsens_max) {
+		nvme_show_error("invalid voltage sensor %u (max %u)",
+				cfg->vsens, vsens_max);
+		return -EINVAL;
+	}
+	if (cfg->ovt > vt_max || cfg->uvt > vt_max) {
+		nvme_show_error("voltage threshold exceeds %u", vt_max);
+		return -EINVAL;
+	}
+
+	nvme_init_set_features_voltage_threshold(&cmd, cfg->feat.save,
+						 cfg->vsens, cfg->evt,
+						 cfg->ovt, cfg->uvt);
+	err = libnvme_exec_admin_passthru(hdl, &cmd);
+	if (err) {
+		nvme_show_err(err, "Set %s", voltage_thresh_feat);
+		return err;
+	}
+
+	nvme_show_result("Set %s: 0x%04x (%s)", voltage_thresh_feat, cmd.cdw11,
+			 cfg->feat.save ? "Save" : "Not save");
+	nvme_feature_show_fields(fid, cmd.cdw11, NULL);
+
+	return err;
+}
+
+static int feat_voltage_thresh(int argc, char **argv, struct command *acmd,
+			       struct plugin *plugin)
+{
+	const char *uvt = "undervoltage threshold, scaled by VOLSS";
+	const char *ovt = "overvoltage threshold, scaled by VOLSS";
+	const char *evt = "enable voltage threshold event";
+	const char *vsens = "voltage sensor select [0-3]";
+	const __u8 fid = NVME_FEAT_FID_VOLTAGE_THRESHOLD;
+	const __u8 vsens_max = NVME_FEAT_VOLTAGE_THRESHOLD_VSENS_MASK;
+
+	__cleanup_nvme_global_ctx struct libnvme_global_ctx *ctx = NULL;
+
+	__cleanup_nvme_transport_handle struct libnvme_transport_handle *hdl =
+	    NULL;
+	int err;
+	__u32 cdw11;
+
+	struct voltage_thresh_config cfg = { 0 };
+
+	__cleanup_free struct argconfig_commandline_options *feat =
+		feat_options(&cfg.feat, true);
+
+	OPT_ARGS(opts) = {
+		OPT_SHRT("uvt",   0, &cfg.uvt,   uvt),
+		OPT_SHRT("ovt",   0, &cfg.ovt,   ovt),
+		OPT_FLAG("evt",   0, &cfg.evt,   evt),
+		OPT_BYTE("vsens", 0, &cfg.vsens, vsens),
+		OPT_INCLUDE(feat, "Feature options"),
+		OPT_END()
+	};
+
+	if (!feat)
+		return -ENOMEM;
+
+	err = parse_and_open(&ctx, &hdl, argc, argv, VOLTAGE_THRESH_DESC, opts);
+	if (err)
+		return err;
+
+	if (argconfig_given(opts, &cfg.uvt) ||
+	    argconfig_given(opts, &cfg.ovt) || cfg.evt) {
+		err = voltage_thresh_set(hdl, fid, &cfg);
+	} else {
+		if (cfg.vsens > vsens_max) {
+			nvme_show_error("invalid voltage sensor %u (max %u)",
+					cfg.vsens, vsens_max);
+			return -EINVAL;
+		}
+		cdw11 = NVME_SET(cfg.vsens, FEAT_VOLTAGE_THRESHOLD_VSENS);
+		err = feat_get(hdl, fid, cdw11, cfg.feat.sel, 0,
+			       voltage_thresh_feat);
+	}
 
 	return err;
 }
@@ -1952,6 +2052,12 @@ static struct command feat_power_meas_cmd = {
 	.fn = feat_power_meas,
 };
 
+static struct command feat_voltage_thresh_cmd = {
+	.name = "voltage-thresh",
+	.help = VOLTAGE_THRESH_DESC,
+	.fn = feat_voltage_thresh,
+};
+
 static struct command feat_voltage_meas_cmd = {
 	.name = "voltage-meas",
 	.help = VOLTAGE_MEAS_DESC,
@@ -2013,6 +2119,7 @@ static struct command *commands[] = {
 	&feat_power_limit_cmd,
 	&feat_power_thresh_cmd,
 	&feat_power_meas_cmd,
+	&feat_voltage_thresh_cmd,
 	&feat_voltage_meas_cmd,
 	&feat_err_recovery_cmd,
 	&feat_lba_range_type_cmd,
