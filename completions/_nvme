@@ -1300,6 +1300,7 @@ _nvme () {
 					'timestamp:Get and set timestamp feature'
 					'volatile-wc:Get and set volatile write cache feature'
 					'voltage-meas:Get and set voltage measurement feature'
+					'voltage-thresh:Get and set voltage threshold feature'
 					'write-atom-normal:Get and set write atomicity normal feature'
 				)
 				_describe -t commands "nvme feat commands" _sub
@@ -1990,6 +1991,40 @@ _nvme () {
 					)
 					_arguments '*:: :->subcmds'
 					_nvme_describe "nvme feat voltage-meas options" _feat_voltage_meas
+					_nvme_has_device || compadd -- /dev/nvme*(N)
+					;;
+
+				(voltage-thresh)
+					_nvme_opt_vals "--output-format -o" "normal json binary" \
+					               "--output-format-version" "1 2" \
+					               "--sel -S" "0 1 2 3 current default saved supported" \
+					               "--timeout" "infinite -1" && return
+					local _feat_voltage_thresh
+					_feat_voltage_thresh=(
+						--dry-run':show command instead of executing'
+						--evt':enable voltage threshold event'
+						--no-ioctl-probing':disable 64-bit IOCTL support probing'
+						--no-retries':disable retry logic on errors'
+						--output-format=':Output format: normal|json|binary'
+						-o':alias for --output-format'
+						--output-format-version=':output format version: 1|2'
+						--ovt=':overvoltage threshold, scaled by VOLSS'
+						--quiet':suppress informational output'
+						--save':Specifies that the controller shall save the attribute'
+						-s':alias for --save'
+						--sel=':[0-3]: current/default/saved/supported'
+						-S':alias for --sel'
+						--set-options=':set a libnvme library option (key=value[,key=value,...]);'
+						--timeout=':timeout value, in milliseconds'
+						--uvt=':undervoltage threshold, scaled by VOLSS'
+						--verbose':Increase output verbosity'
+						-v':alias for --verbose'
+						--vsens=':voltage sensor select [0-3]'
+						--help':show help'
+						-h':alias for --help'
+					)
+					_arguments '*:: :->subcmds'
+					_nvme_describe "nvme feat voltage-thresh options" _feat_voltage_thresh
 					_nvme_has_device || compadd -- /dev/nvme*(N)
 					;;
 
